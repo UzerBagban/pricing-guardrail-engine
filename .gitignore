@@ -86,3 +86,6 @@ config/local/
 *.temp
 tmp/
 temp/
+
+# Test fixtures output
+tests/fixtures/output/

@@ -1,0 +1,10 @@
+{
+  "executive_summary": {
+    "total_events_ingested": 251,
+    "suppressions_triggered": 1,
+    "total_suppressions_in_queue": 15,
+    "vrp_drift_events_total": 0,
+    "vrp_drift_severity_breakdown": [],
+    "top_risk_skus": []
+  }
+}
