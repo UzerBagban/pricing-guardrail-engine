@@ -1,0 +1,624 @@
+"""
+VRP Guardrail Engine
+Evaluates inbound price updates against calculated floor prices and VRP drift thresholds.
+"""
+
+from dataclasses import dataclass, field
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Optional, List, Dict, Any
+from enum import Enum
+from datetime import datetime
+import uuid
+
+from src.engine.calculator import (
+    CostBreakdown,
+    PricingRule,
+    calculate_floor_price,
+    calculate_min_margin_amount,
+)
+
+
+class GuardrailStatus(str, Enum):
+    HEALTHY = "healthy"
+    WARNING = "warning"
+    BREACH = "breach"
+    SUPPRESSED = "suppressed"
+
+
+class DriftType(str, Enum):
+    VRP_DROP = "vrp_drop"
+    VRP_SPIKE = "vrp_spike"
+    BUYBOX_LOSS = "buybox_loss"
+    MARGIN_BREACH = "margin_breach"
+    ELASTICITY_BREACH = "elasticity_breach"
+
+
+class RecommendedAction(str, Enum):
+    HOLD = "hold"
+    INCREASE_PRICE = "increase_price"
+    DECREASE_PRICE = "decrease_price"
+    INVESTIGATE = "investigate"
+    SUPPRESS = "suppress"
+    MATCH_COMPETITOR = "match_competitor"
+    OVERRIDE_FLOOR = "override_floor"
+
+
+@dataclass
+class PriceEvaluationInput:
+    """Input data for price evaluation."""
+    product_id: str
+    sku: str
+    asin: str
+    category: str
+
+    # Current pricing
+    our_current_price: Decimal = Decimal("0")
+    proposed_price: Optional[Decimal] = None  # If evaluating a proposed change
+
+    # Cost structure (from product_costs + shipping + fees)
+    cogs_per_unit: Decimal = Decimal("0")
+    packaging_cost: Decimal = Decimal("0")
+    fulfillment_cost: Decimal = Decimal("0")
+    shipping_cost: Decimal = Decimal("0")
+    referral_fee: Decimal = Decimal("0")
+    fba_fee: Decimal = Decimal("0")
+    processing_fee: Decimal = Decimal("0")
+
+    # VRP data
+    vrp_price: Optional[Decimal] = None
+    buybox_price: Optional[Decimal] = None
+    lowest_competitor_price: Optional[Decimal] = None
+    competitor_count: int = 0
+
+    # Guardrail configuration
+    min_margin_pct: Decimal = Decimal("15.0")
+    max_premium_pct: Optional[Decimal] = Decimal("30.0")
+    vrp_drift_threshold_pct: Decimal = Decimal("5.0")
+    elasticity_threshold: Decimal = Decimal("2.5")
+    suppression_enabled: bool = True
+
+    # Elasticity data (optional)
+    base_price: Optional[Decimal] = None
+    base_velocity: Optional[Decimal] = None
+    current_velocity: Optional[Decimal] = None
+    elasticity_coefficient: Decimal = Decimal("-2.0")
+
+    # Context
+    channel: str = "amazon"
+    timestamp: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class PriceEvaluationResult:
+    """Result of guardrail evaluation."""
+    evaluation_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    timestamp: datetime = field(default_factory=datetime.now)
+
+    # Input reference
+    product_id: str = ""
+    sku: str = ""
+    proposed_price: Optional[Decimal] = None
+
+    # Calculated values
+    floor_price: Decimal = Decimal("0")
+    variable_costs: Decimal = Decimal("0")
+    min_margin_amount: Decimal = Decimal("0")
+    calculated_margin_pct: Decimal = Decimal("0")
+
+    # VRP analysis
+    vrp_price: Optional[Decimal] = None
+    vrp_drift_pct: Optional[Decimal] = None
+    vrp_drift_detected: bool = False
+    vrp_threshold_pct: Decimal = Decimal("5.0")
+
+    # Elasticity analysis
+    elasticity_score: Optional[Decimal] = None
+    elasticity_threshold: Decimal = Decimal("2.5")
+    elasticity_breach: bool = False
+
+    # Guardrail status
+    status: GuardrailStatus = GuardrailStatus.HEALTHY
+    violations: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+
+    # Recommendations
+    recommended_action: RecommendedAction = RecommendedAction.HOLD
+    recommended_price: Optional[Decimal] = None
+    suppression_triggered: bool = False
+    suppression_reason: Optional[str] = None
+
+    # Metadata
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        result = {}
+        for k, v in self.__dict__.items():
+            if isinstance(v, Decimal):
+                result[k] = float(v)
+            elif isinstance(v, (list, dict)):
+                result[k] = v
+            elif isinstance(v, Enum):
+                result[k] = v.value
+            elif isinstance(v, datetime):
+                result[k] = v.isoformat()
+            elif v is None:
+                result[k] = None
+            else:
+                result[k] = v
+        return result
+
+
+class VRPGuardrailEngine:
+    """
+    Main guardrail evaluation engine.
+    """
+
+    def __init__(self, default_rule: Optional[PricingRule] = None):
+        self.default_rule = default_rule or PricingRule(
+            min_margin_pct=Decimal("15.0"),
+            max_premium_pct=Decimal("30.0"),
+            vrp_drift_threshold_pct=Decimal("5.0"),
+            elasticity_threshold=Decimal("2.5"),
+            suppression_enabled=True,
+            auto_adjust_enabled=False,
+        )
+
+    def evaluate(self, input_data: PriceEvaluationInput) -> PriceEvaluationResult:
+        """
+        Main evaluation entry point.
+        """
+        result = PriceEvaluationResult(
+            product_id=input_data.product_id,
+            sku=input_data.sku,
+            proposed_price=input_data.proposed_price,
+            vrp_price=input_data.vrp_price,
+            vrp_threshold_pct=input_data.vrp_drift_threshold_pct,
+            elasticity_threshold=input_data.elasticity_threshold,
+        )
+
+        # 1. Calculate floor price
+        self._calculate_floor_price(input_data, result)
+
+        # 2. Evaluate proposed price (or current price if no proposal)
+        eval_price = input_data.proposed_price or input_data.our_current_price
+        self._evaluate_margin(input_data, eval_price, result)
+
+        # 3. VRP drift analysis
+        if input_data.vrp_price:
+            self._evaluate_vrp_drift(input_data, result)
+
+        # 4. Elasticity analysis
+        if input_data.base_price and input_data.base_velocity:
+            self._evaluate_elasticity(input_data, result)
+
+        # 5. Competitor analysis
+        self._evaluate_competitors(input_data, result)
+
+        # 6. Determine final status and recommendations
+        self._determine_status_and_recommendations(input_data, result)
+
+        return result
+
+    def _calculate_floor_price(self, input_data: PriceEvaluationInput, result: PriceEvaluationResult) -> None:
+        """Calculate floor price from cost components."""
+        breakdown = calculate_floor_price(
+            cogs_per_unit=input_data.cogs_per_unit,
+            packaging_cost=input_data.packaging_cost,
+            fulfillment_cost=input_data.fulfillment_cost,
+            shipping_cost=input_data.shipping_cost,
+            referral_fee=input_data.referral_fee,
+            fba_fee=input_data.fba_fee,
+            processing_fee=input_data.processing_fee,
+            min_margin_pct=input_data.min_margin_pct,
+        )
+
+        result.floor_price = breakdown.floor_price()
+        result.variable_costs = breakdown.total_variable_costs()
+        result.min_margin_amount = breakdown.min_margin_amount
+
+    def _evaluate_margin(
+        self,
+        input_data: PriceEvaluationInput,
+        eval_price: Decimal,
+        result: PriceEvaluationResult
+    ) -> None:
+        """Evaluate margin at the given price using base cost markup formula."""
+        if eval_price <= 0:
+            result.calculated_margin_pct = Decimal("-100")
+            result.violations.append("invalid_price")
+            return
+
+        # Base cost = COGS + variable_costs (consistent with calculator.py)
+        base_cost = input_data.cogs_per_unit + result.variable_costs
+
+        result.calculated_margin_pct = (
+            (eval_price - base_cost) / base_cost * Decimal("100")
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        # Check against floor
+        if eval_price < result.floor_price:
+            result.violations.append("below_floor_price")
+            result.suppression_triggered = True
+            result.suppression_reason = "below_floor_price"
+
+        # Check against min margin (using base cost markup, consistent with calculator.py)
+        if result.calculated_margin_pct < input_data.min_margin_pct:
+            result.violations.append("margin_below_minimum")
+
+        # Check against max premium (if VRP exists)
+        if input_data.vrp_price and input_data.max_premium_pct:
+            max_allowed = input_data.vrp_price * (Decimal("1") + input_data.max_premium_pct / Decimal("100"))
+            if eval_price > max_allowed:
+                result.warnings.append("above_max_premium")
+                result.recommended_action = RecommendedAction.DECREASE_PRICE
+
+    def _evaluate_vrp_drift(self, input_data: PriceEvaluationInput, result: PriceEvaluationResult) -> None:
+        """Evaluate VRP drift."""
+        if not input_data.vrp_price or not input_data.our_current_price:
+            return
+
+        our_price = input_data.our_current_price or Decimal("0")
+        if our_price <= 0:
+            return
+
+        drift = (
+            (input_data.vrp_price - our_price)
+            / our_price * Decimal("100")
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        result.vrp_drift_pct = drift
+        threshold = input_data.vrp_drift_threshold_pct or Decimal("5.0")
+        result.vrp_drift_detected = abs(drift) > threshold
+
+        if result.vrp_drift_detected:
+            if drift > threshold:
+                result.violations.append("vrp_drift_above_threshold")
+                result.warnings.append(f"VRP is {drift:.2f}% above our price (threshold: {threshold}%)")
+            elif drift < -threshold:
+                result.violations.append("vrp_drop_below_threshold")
+                result.warnings.append(f"VRP dropped {abs(drift):.2f}% below our price (threshold: {threshold}%)")
+
+    def _evaluate_elasticity(
+        self,
+        input_data: PriceEvaluationInput,
+        result: PriceEvaluationResult
+    ) -> None:
+        """Evaluate price elasticity.
+        
+        Elasticity = % change in velocity / % change in price
+        High elasticity means demand is sensitive to price changes.
+        """
+        if not all([input_data.base_price, input_data.base_velocity, input_data.current_velocity]):
+            return
+
+        eval_price = input_data.proposed_price or input_data.our_current_price
+
+        if input_data.base_price <= 0 or input_data.base_velocity <= 0:
+            return
+
+        price_change_pct = (eval_price - input_data.base_price) / input_data.base_price
+        velocity_change_pct = (input_data.current_velocity - input_data.base_velocity) / input_data.base_velocity
+
+        # Handle near-zero price change (infinite elasticity)
+        if abs(price_change_pct) < Decimal("0.001"):
+            elasticity = abs(input_data.elasticity_coefficient) * Decimal("10")
+        else:
+            elasticity = abs(velocity_change_pct / price_change_pct)
+
+        result.elasticity_score = elasticity.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+        result.elasticity_breach = elasticity > input_data.elasticity_threshold
+
+        if result.elasticity_breach:
+            result.violations.append("elasticity_breach")
+            result.warnings.append(f"Elasticity score {elasticity:.3f} exceeds threshold {input_data.elasticity_threshold}")
+
+    def _evaluate_competitors(
+        self,
+        input_data: PriceEvaluationInput,
+        result: PriceEvaluationResult
+    ) -> None:
+        """Evaluate competitor positioning."""
+        eval_price = input_data.proposed_price or input_data.our_current_price
+
+        if not input_data.lowest_competitor_price:
+            return
+
+        if eval_price > input_data.lowest_competitor_price:
+            diff_pct = ((eval_price - input_data.lowest_competitor_price) / input_data.lowest_competitor_price * Decimal("100")).quantize(Decimal("0.01"))
+            result.warnings.append(f"Price {diff_pct}% above lowest competitor (${input_data.lowest_competitor_price})")
+
+            if input_data.buybox_price and input_data.buybox_price < eval_price:
+                result.violations.append("buybox_lost")
+                result.warnings.append("Lost buybox to lower-priced competitor")
+
+    def _determine_status_and_recommendations(
+        self,
+        input_data: PriceEvaluationInput,
+        result: PriceEvaluationResult
+    ) -> None:
+        """Determine final guardrail status and recommendations."""
+        eval_price = input_data.proposed_price or input_data.our_current_price
+
+        # Priority: breach > warning > healthy
+        if ("below_floor_price" in result.violations 
+            or "margin_below_minimum" in result.violations
+            or "invalid_price" in result.violations):
+            result.status = GuardrailStatus.BREACH
+            result.recommended_action = RecommendedAction.SUPPRESS
+            result.suppression_triggered = True
+            result.suppression_reason = result.suppression_reason or "margin_breach"
+            result.recommended_price = result.floor_price
+
+        elif result.vrp_drift_detected and result.vrp_drift_pct and input_data.vrp_price:
+            # VRP drift detected - recommend action based on drift direction
+            threshold = input_data.vrp_drift_threshold_pct or Decimal("5.0")
+            if result.vrp_drift_pct < -threshold:
+                # VRP dropped below our price - we're priced above VRP, recommend decreasing to match
+                result.status = GuardrailStatus.WARNING
+                result.recommended_action = RecommendedAction.DECREASE_PRICE
+                target_price = input_data.vrp_price * (Decimal("1") + Decimal("0.02"))  # 2% above VRP
+                result.recommended_price = max(target_price, result.floor_price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            elif result.vrp_drift_pct > threshold:
+                # VRP spiked above our price - we're priced below VRP, recommend increasing to follow
+                result.status = GuardrailStatus.WARNING
+                result.recommended_action = RecommendedAction.INCREASE_PRICE
+                target_price = input_data.vrp_price * (Decimal("1") - Decimal("0.02"))  # 2% below VRP
+                result.recommended_price = max(target_price, result.floor_price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        elif result.elasticity_breach:
+            result.status = GuardrailStatus.WARNING
+            result.recommended_action = RecommendedAction.INVESTIGATE
+
+        elif "buybox_lost" in result.violations:
+            result.status = GuardrailStatus.WARNING
+            if input_data.lowest_competitor_price and input_data.lowest_competitor_price > result.floor_price:
+                result.recommended_action = RecommendedAction.MATCH_COMPETITOR
+                result.recommended_price = input_data.lowest_competitor_price
+            else:
+                result.recommended_action = RecommendedAction.HOLD
+
+        elif result.warnings:
+            # Check if warnings are just informational (competitor positioning)
+            informational_warnings = [w for w in result.warnings if "above lowest competitor" in w.lower() or "above max premium" in w.lower()]
+            if len(informational_warnings) == len(result.warnings):
+                # Only informational warnings - stay healthy
+                result.status = GuardrailStatus.HEALTHY
+                result.recommended_action = RecommendedAction.HOLD
+            else:
+                result.status = GuardrailStatus.WARNING
+                result.recommended_action = RecommendedAction.INVESTIGATE
+
+        else:
+            result.status = GuardrailStatus.HEALTHY
+            result.recommended_action = RecommendedAction.HOLD
+
+        # Apply suppression if enabled and breached
+        if result.suppression_triggered and not input_data.suppression_enabled:
+            result.suppression_triggered = False
+            result.suppression_reason = None
+            result.status = GuardrailStatus.WARNING  # Downgrade to warning if suppression disabled
+
+        # Add metadata
+        result.metadata = {
+            "evaluated_price": float(eval_price),
+            "current_price": float(input_data.our_current_price),
+            "price_change_pct": float(
+                ((eval_price - input_data.our_current_price) / input_data.our_current_price * Decimal("100"))
+                .quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            ) if input_data.our_current_price > 0 else 0,
+            "violation_count": len(result.violations),
+            "warning_count": len(result.warnings),
+        }
+
+
+def evaluate_price_batch(
+    inputs: List[PriceEvaluationInput],
+    rule: Optional[PricingRule] = None
+) -> List[PriceEvaluationResult]:
+    """Evaluate multiple price inputs in batch."""
+    engine = VRPGuardrailEngine(rule)
+    return [engine.evaluate(inp) for inp in inputs]
+
+
+def quick_evaluate(
+    our_price: float,
+    floor_price: float,
+    vrp_price: Optional[float] = None,
+    vrp_threshold: float = 5.0,
+    min_margin_pct: float = 15.0,
+) -> dict:
+    """Quick evaluation for simple cases."""
+    input_data = PriceEvaluationInput(
+        product_id="quick",
+        sku="QUICK",
+        asin="",
+        category="",
+        our_current_price=Decimal(str(our_price)),
+        cogs_per_unit=Decimal("0"),
+        min_margin_pct=Decimal(str(min_margin_pct)),
+        vrp_drift_threshold_pct=Decimal(str(vrp_threshold)),
+    )
+
+    # Override floor price calculation
+    result = PriceEvaluationResult(
+        product_id="quick",
+        sku="QUICK",
+        floor_price=Decimal(str(floor_price)),
+        variable_costs=Decimal("0"),
+    )
+
+    eval_price = Decimal(str(our_price))
+    result.calculated_margin_pct = Decimal("0")  # Unknown without costs
+
+    if eval_price < result.floor_price:
+        result.violations.append("below_floor_price")
+        result.status = GuardrailStatus.BREACH
+        result.recommended_action = RecommendedAction.SUPPRESS
+        result.suppression_triggered = True
+        result.suppression_reason = "below_floor_price"
+        result.recommended_price = result.floor_price
+    elif vrp_price:
+        vrp_d = Decimal(str(vrp_price))
+        drift = ((vrp_d - eval_price) / eval_price * Decimal("100")).quantize(Decimal("0.01"))
+        result.vrp_drift_pct = drift
+        if abs(drift) > Decimal(str(vrp_threshold)):
+            result.vrp_drift_detected = True
+            result.status = GuardrailStatus.WARNING
+            if drift < 0:
+                # VRP below our price - recommend decreasing
+                result.recommended_action = RecommendedAction.DECREASE_PRICE
+            else:
+                # VRP above our price - recommend increasing
+                result.recommended_action = RecommendedAction.INCREASE_PRICE
+    else:
+        result.status = GuardrailStatus.HEALTHY
+        result.recommended_action = RecommendedAction.HOLD
+
+    return result.to_dict()
+
+
+if __name__ == "__main__":
+    # Demo
+    print("=== VRP Guardrail Engine Demo ===\n")
+
+    # Scenario 1: Healthy price
+    engine = VRPGuardrailEngine()
+
+    input1 = PriceEvaluationInput(
+        product_id="prod-001",
+        sku="ELEC-001",
+        asin="B08N5WRWNW",
+        category="Electronics",
+        our_current_price=Decimal("79.99"),
+        cogs_per_unit=Decimal("28.50"),
+        packaging_cost=Decimal("1.20"),
+        fulfillment_cost=Decimal("3.50"),
+        shipping_cost=Decimal("4.20"),
+        referral_fee=Decimal("8.00"),
+        fba_fee=Decimal("4.50"),
+        processing_fee=Decimal("2.50"),
+        min_margin_pct=Decimal("20.0"),
+        vrp_price=Decimal("79.99"),
+        buybox_price=Decimal("77.50"),
+        lowest_competitor_price=Decimal("75.99"),
+        competitor_count=12,
+    )
+
+    result1 = engine.evaluate(input1)
+    print(f"Scenario 1: Healthy price at VRP")
+    print(f"  Floor: ${result1.floor_price:.2f}, Margin: {result1.calculated_margin_pct:.2f}%")
+    print(f"  VRP Drift: {result1.vrp_drift_pct:.2f}%, Status: {result1.status.value}")
+    print(f"  Action: {result1.recommended_action.value}\n")
+
+    # Scenario 2: Below floor
+    input2 = PriceEvaluationInput(
+        product_id="prod-001",
+        sku="ELEC-001",
+        asin="B08N5WRWNW",
+        category="Electronics",
+        our_current_price=Decimal("40.00"),  # Below floor
+        cogs_per_unit=Decimal("28.50"),
+        packaging_cost=Decimal("1.20"),
+        fulfillment_cost=Decimal("3.50"),
+        shipping_cost=Decimal("4.20"),
+        referral_fee=Decimal("8.00"),
+        fba_fee=Decimal("4.50"),
+        processing_fee=Decimal("2.50"),
+        min_margin_pct=Decimal("20.0"),
+        vrp_price=Decimal("79.99"),
+    )
+
+    result2 = engine.evaluate(input2)
+    print(f"Scenario 2: Below floor price")
+    print(f"  Floor: ${result2.floor_price:.2f}, Margin: {result2.calculated_margin_pct:.2f}%")
+    print(f"  Violations: {result2.violations}")
+    print(f"  Status: {result2.status.value}, Action: {result2.recommended_action.value}")
+    print(f"  Suppression: {result2.suppression_triggered} ({result2.suppression_reason})")
+    print(f"  Recommended Price: ${result2.recommended_price:.2f}\n")
+
+    # Scenario 3: VRP drop
+    input3 = PriceEvaluationInput(
+        product_id="prod-001",
+        sku="ELEC-001",
+        asin="B08N5WRWNW",
+        category="Electronics",
+        our_current_price=Decimal("79.99"),
+        proposed_price=Decimal("79.99"),
+        cogs_per_unit=Decimal("28.50"),
+        packaging_cost=Decimal("1.20"),
+        fulfillment_cost=Decimal("3.50"),
+        shipping_cost=Decimal("4.20"),
+        referral_fee=Decimal("8.00"),
+        fba_fee=Decimal("4.50"),
+        processing_fee=Decimal("2.50"),
+        min_margin_pct=Decimal("20.0"),
+        vrp_price=Decimal("72.00"),  # VRP dropped ~10%
+    )
+
+    result3 = engine.evaluate(input3)
+    print(f"Scenario 3: VRP dropped >5%")
+    print(f"  Floor: ${result3.floor_price:.2f}")
+    print(f"  VRP Drift: {result3.vrp_drift_pct:.2f}% (threshold: 5%)")
+    print(f"  Status: {result3.status.value}, Action: {result3.recommended_action.value}")
+    print(f"  Recommended Price: ${result3.recommended_price:.2f}\n")
+
+    # Quick evaluate
+    print("Quick evaluate:")
+    print(f"  Price $50, Floor $45, VRP $48: {quick_evaluate(50, 45, 48)}")
+    print(f"  Price $40, Floor $45: {quick_evaluate(40, 45)}")
+
+
+# Simple interface for ingestion evaluator
+from dataclasses import dataclass
+from typing import Optional
+
+
+@dataclass
+class GuardrailResult:
+    """Simplified guardrail result for ingestion pipeline."""
+    action: RecommendedAction
+    floor_price: float
+    margin_pct: float
+    floor_breach: bool
+    warnings: list[str]
+
+
+def evaluate_price(
+    proposed_price: float,
+    cost_price: float,
+    shipping_cost: float,
+    min_margin_pct: float,
+    vrp_price: Optional[float] = None,
+    vrp_threshold_pct: float = 5.0,
+) -> GuardrailResult:
+    """
+    Simple price evaluation for ingestion pipeline.
+    Returns a simplified GuardrailResult.
+    """
+    from decimal import Decimal
+    
+    # Create a minimal input for the guardrail engine
+    input_data = PriceEvaluationInput(
+        product_id="ingestion",
+        sku="INGEST",
+        asin="",
+        category="",
+        our_current_price=Decimal(str(proposed_price)),
+        proposed_price=Decimal(str(proposed_price)),
+        cogs_per_unit=Decimal(str(cost_price)),
+        shipping_cost=Decimal(str(shipping_cost)),
+        min_margin_pct=Decimal(str(min_margin_pct * 100)),  # Convert to percentage
+        vrp_price=Decimal(str(vrp_price)) if vrp_price else None,
+        vrp_drift_threshold_pct=Decimal(str(vrp_threshold_pct)),
+    )
+    
+    engine = VRPGuardrailEngine()
+    result = engine.evaluate(input_data)
+    
+    return GuardrailResult(
+        action=result.recommended_action,
+        floor_price=float(result.floor_price),
+        margin_pct=float(result.calculated_margin_pct) / 100.0,  # Convert to decimal
+        floor_breach=result.status == GuardrailStatus.BREACH and "below_floor_price" in result.violations,
+        warnings=result.warnings
+    )

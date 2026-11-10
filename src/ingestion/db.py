@@ -191,7 +191,7 @@ def persist_event(event: TelemetryEvent) -> bool:
             metadata, created_at
         ) VALUES (
             %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
         )
         ON CONFLICT (event_id) DO NOTHING
     """
@@ -241,12 +241,12 @@ def get_product_id_by_sku(sku: str) -> str | None:
     Look up product UUID by SKU from products table.
     Returns the product_id (UUID) if found, None otherwise.
     """
-    query = "SELECT product_id FROM products WHERE sku = %s AND is_active = true"
+    query = "SELECT id FROM products WHERE sku = %s AND is_active = true"
     try:
         with get_cursor(commit=False) as cursor:
             cursor.execute(query, (sku,))
             row = cursor.fetchone()
-            return str(row["product_id"]) if row else None
+            return str(row["id"]) if row else None
     except Exception as e:
         log.error(f"Failed to lookup product_id for SKU {sku}: {e}")
         return None
@@ -291,7 +291,7 @@ def persist_event(event: TelemetryEvent) -> bool:
             metadata, created_at
         ) VALUES (
             %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
         )
         ON CONFLICT (event_id) DO NOTHING
     """
@@ -353,7 +353,7 @@ def persist_batch(events: list) -> int:
             metadata, created_at
         ) VALUES (
             %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
         )
         ON CONFLICT (event_id) DO NOTHING
     """
