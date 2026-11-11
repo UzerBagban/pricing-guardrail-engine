@@ -194,6 +194,8 @@ def get_full_dashboard_data() -> Dict[str, Any]:
         pass
 
     # 4. Detailed Telemetry Rows for Table & Scatter
+    from src.analytics.memo_generator import diagnose_sku
+
     sku_rows = []
     try:
         with get_cursor(commit=False) as cur:
@@ -224,7 +226,7 @@ def get_full_dashboard_data() -> Dict[str, Any]:
                 LIMIT 100
             """)
             for row in cur.fetchall():
-                sku_rows.append({
+                row_dict = {
                     "sku": row["sku"],
                     "name": row.get("name") or row["sku"],
                     "category": row.get("category") or "Uncategorized",
@@ -244,7 +246,9 @@ def get_full_dashboard_data() -> Dict[str, Any]:
                     "vrp_drift_pct": float(row["vrp_drift_pct"] or 0),
                     "elasticity_score": float(row["elasticity_score"] or 0),
                     "timestamp": row["timestamp"].isoformat() if row.get("timestamp") else "",
-                })
+                }
+                row_dict["diagnosis"] = diagnose_sku(row_dict)
+                sku_rows.append(row_dict)
     except Exception:
         pass
 
@@ -761,6 +765,7 @@ def render_html_dashboard(data: Dict[str, Any]) -> str:
         <span class="pulse-dot"></span>
         <span id="system-status-text">Guardrails Armed & Active</span>
       </div>
+      <button class="btn" id="btn-export-memo" onclick="exportExecutiveMemo()">Executive Memo (.md)</button>
       <button class="btn" id="btn-export-json" onclick="exportDataJson()">Export JSON</button>
       <button class="btn" id="btn-refresh" onclick="location.reload()">Refresh Data</button>
     </div>
@@ -1174,6 +1179,11 @@ def render_html_dashboard(data: Dict[str, Any]) -> str:
         <div style="margin-top: 16px; font-size: 0.8125rem; color: var(--text-muted);">
           Current selling price: <strong>$${{row.our_price.toFixed(2)}}</strong> (Margin: <strong>${{row.calculated_margin_pct.toFixed(1)}}%</strong>). Guardrail status: <span class="badge ${{row.guardrail_status.toLowerCase()}}">${{row.guardrail_status}}</span>
         </div>
+        <div style="margin-top: 14px; padding: 12px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 8px;">
+          <div style="font-weight: 600; color: #60a5fa; font-size: 0.8125rem; margin-bottom: 4px;">AI Root-Cause Diagnosis (${{row.diagnosis ? row.diagnosis.threat_type : 'ANALYSIS'}}):</div>
+          <div style="font-size: 0.8125rem; color: #cbd5e1; line-height: 1.4;">${{row.diagnosis ? row.diagnosis.explanation : 'Operating in normal corridor.'}}</div>
+          <div style="margin-top: 6px; font-size: 0.75rem; color: #93c5fd;"><strong>Recommendation:</strong> ${{row.diagnosis ? row.diagnosis.recommendation : 'MAINTAIN'}}</div>
+        </div>
       `;
       document.getElementById("modal-content").innerHTML = html;
       document.getElementById("modal-backdrop").style.display = "flex";
@@ -1181,6 +1191,31 @@ def render_html_dashboard(data: Dict[str, Any]) -> str:
 
     function closeModal(event) {{
       document.getElementById("modal-backdrop").style.display = "none";
+    }}
+
+    function exportExecutiveMemo() {{
+      const kpis = DASHBOARD_DATA.kpis || {{}};
+      let md = `# Executive Pricing Guardrail & Margin Defense Audit Memo\\nGenerated: ${{DASHBOARD_DATA.generated_at}}\\n\\n`;
+      md += `## 1. Portfolio Defense Summary\\n`;
+      md += `- Total Audited Events: ${{kpis.total_events || 0}}\\n`;
+      md += `- Profit Dollars Defended: $${{(kpis.margin_dollars_protected || 0).toFixed(2)}}\\n`;
+      md += `- Active Suppressions: ${{kpis.active_suppressions || 0}}\\n`;
+      md += `- Realized Portfolio Margin: ${{(kpis.avg_margin_pct || 0).toFixed(1)}}%\\n\\n`;
+      md += `## 2. High-Risk SKU Incident Autopsy\\n`;
+      (DASHBOARD_DATA.sku_rows || []).slice(0, 15).forEach(r => {{
+        if (r.diagnosis && r.diagnosis.severity >= 3) {{
+          md += "### [" + r.sku + "] " + r.name + "\\n";
+          md += "- Threat: " + r.diagnosis.threat_type + " | Recommendation: " + r.diagnosis.recommendation + "\\n";
+          md += "- Diagnosis: " + r.diagnosis.explanation + "\\n\\n";
+        }}
+      }});
+      const str = "data:text/markdown;charset=utf-8," + encodeURIComponent(md);
+      const dl = document.createElement("a");
+      dl.setAttribute("href", str);
+      dl.setAttribute("download", "Executive_Pricing_Guardrail_Memo.md");
+      document.body.appendChild(dl);
+      dl.click();
+      dl.remove();
     }}
 
     function exportDataJson() {{
