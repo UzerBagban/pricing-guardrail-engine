@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import http.server
 import json
+import logging
 import os
 import socketserver
 import sys
@@ -51,8 +52,8 @@ def get_telemetry_stats() -> Dict[str, Any]:
 
     try:
         init_schema()
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger("dashboard").debug("Schema initialization skipped or failed: %s", exc)
 
     total_events = _count("SELECT COUNT(*) FROM telemetry_raw")
     suppressions_triggered = _count("SELECT COUNT(*) FROM telemetry_raw WHERE suppression_triggered = true")

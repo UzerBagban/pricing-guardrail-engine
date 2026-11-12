@@ -8,7 +8,7 @@ import json
 import logging
 import sys
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from src.ingestion.db import (
@@ -189,7 +189,7 @@ class IngestionEvaluator:
             vrp_severity=vrp_severity,
             guardrail_action=guardrail_action,
             warnings=warnings,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
 
     def persist_vrp_drift_event(self, result: EvaluationResult) -> bool:

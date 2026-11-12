@@ -7,8 +7,13 @@ All SQL uses %s placeholders - zero string formatting.
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Generator, Optional, Any
+
+
+def _utc_now() -> datetime:
+    """Return timezone-aware current UTC datetime."""
+    return datetime.now(timezone.utc)
 
 import psycopg2
 from psycopg2.pool import SimpleConnectionPool
@@ -228,7 +233,7 @@ def persist_event(event: TelemetryEvent) -> bool:
                 event.suppression_triggered,
                 event.suppression_reason,
                 event.metadata,
-                event.created_at or datetime.utcnow()
+                event.created_at or _utc_now()
             ))
         return True
     except Exception as e:
@@ -328,7 +333,7 @@ def persist_event(event: TelemetryEvent) -> bool:
                 event.suppression_triggered,
                 event.suppression_reason,
                 event.metadata,
-                event.created_at or datetime.utcnow()
+                event.created_at or _utc_now()
             ))
         return True
     except Exception as e:
@@ -393,7 +398,7 @@ def persist_batch(events: list) -> int:
                         event.suppression_triggered,
                         event.suppression_reason,
                         event.metadata,
-                        event.created_at or datetime.utcnow()
+                        event.created_at or _utc_now()
                     ))
                     success += 1
                 except Exception as e:
@@ -453,7 +458,7 @@ def add_suppression(
                 product_uuid, asin, channel, reason,
                 target_price, floor_price, vrp_price, margin_pct,
                 elasticity_score, severity, "pending",
-                datetime.utcnow(), None
+                _utc_now(), None
             ))
         log.info(f"Added suppression for SKU {sku}: {reason}")
         return True
@@ -493,7 +498,7 @@ def log_vrp_drift_event(
                 product_uuid, asin, drift_type, severity,
                 previous_vrp, current_vrp, drift_pct, threshold_pct,
                 our_price, floor_price, recommended_action,
-                "new", datetime.utcnow()
+                "new", _utc_now()
             ))
         return True
     except Exception as e:
@@ -531,7 +536,7 @@ def log_price_change(
             cur.execute(query, (
                 product_uuid, change_type, old_price, new_price, floor_price, vrp_price,
                 margin_before, margin_after, elasticity_score, triggered_by,
-                json.dumps(metadata), datetime.utcnow()
+                json.dumps(metadata), _utc_now()
             ))
         return True
     except Exception as e:
@@ -564,7 +569,7 @@ def payload_to_event(payload: Any) -> TelemetryEvent:
     import uuid
     
     # Parse timestamp
-    ts = datetime.utcnow()
+    ts = _utc_now()
     if payload.timestamp:
         try:
             ts = datetime.fromisoformat(payload.timestamp.replace('Z', '+00:00'))
@@ -602,7 +607,7 @@ def payload_to_event(payload: Any) -> TelemetryEvent:
         suppression_triggered=payload.suppression_triggered,
         suppression_reason=payload.suppression_reason,
         metadata=payload.metadata,
-        created_at=datetime.utcnow()
+        created_at=_utc_now()
     )
 
 

@@ -10,7 +10,7 @@ import random
 import time
 import uuid
 from dataclasses import dataclass, asdict, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Iterator, Optional
 from pathlib import Path
@@ -361,7 +361,7 @@ class TelemetrySimulator:
         self._maybe_trigger_shock(product["product_id"])
         
         # Generate base event
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(timezone.utc)
         event = self._generate_base_event(product, timestamp)
         
         # Apply any active shock
@@ -372,7 +372,7 @@ class TelemetrySimulator:
     def generate_batch(self, count: int, product_id: Optional[str] = None) -> list[dict]:
         """Generate a batch of telemetry events."""
         events = []
-        base_time = datetime.utcnow()
+        base_time = datetime.now(timezone.utc)
         
         for i in range(count):
             # Stagger timestamps
