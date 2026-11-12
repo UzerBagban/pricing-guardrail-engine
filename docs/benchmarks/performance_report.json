@@ -1,0 +1,55 @@
+{
+  "timestamp": "2026-11-12T19:01:50.881992+00:00",
+  "benchmarks": [
+    {
+      "test_name": "Floor Price Calculator",
+      "operations": 10000,
+      "total_time_s": 0.0421,
+      "throughput_ops_sec": 237678.7,
+      "avg_latency_ms": 0.0042,
+      "p95_latency_ms": null,
+      "sla_target": "< 0.100 ms / op",
+      "status": "PASSED"
+    },
+    {
+      "test_name": "VRP Guardrail Boundary Evaluator",
+      "operations": 2000,
+      "total_time_s": 0.0586,
+      "throughput_ops_sec": 34116.0,
+      "avg_latency_ms": 0.0293,
+      "p95_latency_ms": null,
+      "sla_target": "< 0.200 ms / op",
+      "status": "PASSED"
+    },
+    {
+      "test_name": "7-Day ML Breach Risk Forecaster",
+      "operations": 1000,
+      "total_time_s": 0.4049,
+      "throughput_ops_sec": 2469.8,
+      "avg_latency_ms": 0.4049,
+      "p95_latency_ms": null,
+      "sla_target": "< 2.000 ms / pred",
+      "status": "PASSED"
+    },
+    {
+      "test_name": "Concurrent DB Pool Stress (8 Threads)",
+      "operations": 40,
+      "total_time_s": 0.1708,
+      "throughput_ops_sec": 234.3,
+      "avg_latency_ms": 4.2689,
+      "p95_latency_ms": null,
+      "sla_target": "100% Concurrent Conns Handled",
+      "status": "PASSED"
+    },
+    {
+      "test_name": "End-to-End Pipeline Cycle (50 Events)",
+      "operations": 50,
+      "total_time_s": 0.126,
+      "throughput_ops_sec": 396.8,
+      "avg_latency_ms": 2.5199,
+      "p95_latency_ms": null,
+      "sla_target": "< 2.5s Full Cycle",
+      "status": "PASSED"
+    }
+  ]
+}
