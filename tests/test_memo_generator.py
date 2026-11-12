@@ -124,7 +124,8 @@ class TestMemoGenerator(TestCase):
         self.assertIn("# Executive Pricing Guardrail & Margin Defense Audit Memo", md)
         self.assertIn("## 1. Executive Summary & Value Protected", md)
         self.assertIn("## 2. High-Risk SKU Incident Autopsy", md)
-        self.assertIn("## 3. Strategic Recommendations", md)
+        self.assertIn("Strategic Recommendations", md)
+        self.assertIn("7-Day Predictive Floor Breach Risk Radar", md)
 
     def test_format_html_memo(self):
         data = generate_executive_memo_data()

@@ -32,7 +32,7 @@
     <div class="kpi-card"><div>Avg Margin</div><div class="kpi-num">55.7%</div></div>
   </div>
   <pre style="white-space: pre-wrap; font-family: inherit;"># Executive Pricing Guardrail & Margin Defense Audit Memo
-**Audit Generated:** 2026-11-12 00:02:23 UTC  
+**Audit Generated:** 2026-11-13 00:14:22 UTC  
 **Target Stakeholders:** Merchandising Leadership, Head of Pricing, Category Managers  
 
 ---
@@ -108,7 +108,24 @@ Below are the critical market threats detected where competitor bots or referenc
 
 ---
 
-## 3. Strategic Recommendations for Category Leadership
+## 3. 7-Day Predictive Floor Breach Risk Radar (ML Forecast)
+
+GradientBoosting model forecast predicting breach probabilities over the next 7 days based on competitor price velocity, elasticity, and floor proximity:
+
+| SKU | Product Name | Risk Tier | 7-Day Breach Probability | Recommended Action |
+| :--- | :--- | :--- | :--- | :--- |
+| **HOME-001** | Memory Foam Pillow Queen Set | `CRITICAL` | **99.8%** | `LOCK_FLOOR_IMMEDIATELY` |
+| **SPRT-002** | Yoga Mat Premium Non-Slip | `CRITICAL` | **99.8%** | `LOCK_FLOOR_IMMEDIATELY` |
+| **TOYS-001** | STEM Building Blocks 200pcs | `CRITICAL` | **99.8%** | `LOCK_FLOOR_IMMEDIATELY` |
+| **BEAU-001** | Vitamin C Serum 30ml | `LOW` | **0.1%** | `MAINTAIN_CURRENT_POLICY` |
+| **BEAU-002** | Retinol Night Cream 50ml | `LOW` | **0.1%** | `MAINTAIN_CURRENT_POLICY` |
+| **ELEC-001** | Wireless Bluetooth Headphones Pro | `LOW` | **0.1%** | `MAINTAIN_CURRENT_POLICY` |
+| **ELEC-002** | USB-C Hub 7-in-1 Adapter | `LOW` | **0.1%** | `MAINTAIN_CURRENT_POLICY` |
+| **HOME-002** | Stainless Steel Water Bottle 32oz | `LOW` | **0.1%** | `MAINTAIN_CURRENT_POLICY` |
+
+---
+
+## 4. Strategic Recommendations for Category Leadership
 
 1. **Maintain Floor Defense on Flagged SKUs**: Do not override automated suppressions on `ELEC-002` or `BEAU-002`; predatory competitor pricing is below landed cost.
 2. **Investigate Supplier Terms for VRP Shocks**: In `Toys & Games` (`TOYS-001`), reference price drops indicate a possible new vendor or liquidation stream.

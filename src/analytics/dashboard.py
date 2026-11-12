@@ -195,6 +195,12 @@ def get_full_dashboard_data() -> Dict[str, Any]:
 
     # 4. Detailed Telemetry Rows for Table & Scatter
     from src.analytics.memo_generator import diagnose_sku
+    from src.engine.predictive import predict_sku_risk, load_or_train_model
+
+    try:
+        predictive_model = load_or_train_model()
+    except Exception:
+        predictive_model = None
 
     sku_rows = []
     try:
@@ -248,6 +254,11 @@ def get_full_dashboard_data() -> Dict[str, Any]:
                     "timestamp": row["timestamp"].isoformat() if row.get("timestamp") else "",
                 }
                 row_dict["diagnosis"] = diagnose_sku(row_dict)
+                if predictive_model:
+                    try:
+                        row_dict["predicted_risk"] = predict_sku_risk(row_dict, model=predictive_model)
+                    except Exception:
+                        row_dict["predicted_risk"] = {"breach_probability_pct": 0.0, "risk_tier": "LOW", "preventative_action": "MAINTAIN"}
                 sku_rows.append(row_dict)
     except Exception:
         pass
@@ -894,6 +905,7 @@ def render_html_dashboard(data: Dict[str, Any]) -> str:
             <th>Floor Price</th>
             <th>Lowest Comp</th>
             <th>Margin %</th>
+            <th>7D Breach Risk</th>
             <th>Status</th>
             <th>Scenario / Event</th>
             <th>Action</th>
@@ -1157,6 +1169,11 @@ def render_html_dashboard(data: Dict[str, Any]) -> str:
             <td><strong>$${{r.floor_price.toFixed(2)}}</strong></td>
             <td class="${{compPriceClass}}">$${{r.lowest_competitor_price.toFixed(2)}} ${{isCompBelowFloor ? '⚠️' : ''}}</td>
             <td>${{r.calculated_margin_pct.toFixed(1)}}%</td>
+            <td>
+              <span class="badge ${{r.predicted_risk && r.predicted_risk.risk_tier ? r.predicted_risk.risk_tier.toLowerCase() : 'low'}}">
+                ${{r.predicted_risk ? r.predicted_risk.breach_probability_pct.toFixed(1) + '%' : '0.0%'}}
+              </span>
+            </td>
             <td><span class="badge ${{r.guardrail_status.toLowerCase()}}">${{r.guardrail_status}}</span></td>
             <td><span style="font-size:0.75rem; color:var(--text-muted);">${{r.scenario || 'normal'}}</span></td>
             <td>
@@ -1183,6 +1200,11 @@ def render_html_dashboard(data: Dict[str, Any]) -> str:
           <div style="font-weight: 600; color: #60a5fa; font-size: 0.8125rem; margin-bottom: 4px;">AI Root-Cause Diagnosis (${{row.diagnosis ? row.diagnosis.threat_type : 'ANALYSIS'}}):</div>
           <div style="font-size: 0.8125rem; color: #cbd5e1; line-height: 1.4;">${{row.diagnosis ? row.diagnosis.explanation : 'Operating in normal corridor.'}}</div>
           <div style="margin-top: 6px; font-size: 0.75rem; color: #93c5fd;"><strong>Recommendation:</strong> ${{row.diagnosis ? row.diagnosis.recommendation : 'MAINTAIN'}}</div>
+        </div>
+        <div style="margin-top: 10px; padding: 12px; background: rgba(244, 63, 94, 0.08); border: 1px solid rgba(244, 63, 94, 0.25); border-radius: 8px;">
+          <div style="font-weight: 600; color: #f43f5e; font-size: 0.8125rem; margin-bottom: 4px;">7-Day Floor Breach Risk Forecast: ${{row.predicted_risk ? row.predicted_risk.breach_probability_pct.toFixed(1) + '%' : '0.0%'}} [${{row.predicted_risk ? row.predicted_risk.risk_tier : 'LOW'}}]</div>
+          <div style="font-size: 0.8125rem; color: #cbd5e1;"><strong>Preventative Action:</strong> ${{row.predicted_risk ? row.predicted_risk.preventative_action : 'MAINTAIN_CURRENT_POLICY'}}</div>
+          <div style="margin-top: 4px; font-size: 0.75rem; color: #9ca3af;">Primary Drivers: ${{row.predicted_risk && row.predicted_risk.primary_risk_drivers ? row.predicted_risk.primary_risk_drivers.join(' • ') : 'Stable market equilibrium.'}}</div>
         </div>
       `;
       document.getElementById("modal-content").innerHTML = html;

@@ -184,6 +184,13 @@ def generate_executive_memo_data() -> Dict[str, Any]:
         tt = d["threat_type"]
         threat_breakdown[tt] = threat_breakdown.get(tt, 0) + 1
 
+    # Predictive risk radar
+    from src.engine.predictive import predict_catalog_risks
+    try:
+        predictive_risks = predict_catalog_risks()
+    except Exception:
+        predictive_risks = []
+
     return {
         "title": "Executive Pricing Guardrail & Margin Defense Audit Memo",
         "date": datetime.now().strftime("%B %d, %Y"),
@@ -192,6 +199,7 @@ def generate_executive_memo_data() -> Dict[str, Any]:
         "threat_breakdown": threat_breakdown,
         "critical_incidents": breaches[:10],
         "warning_incidents": warnings[:10],
+        "predictive_risks": predictive_risks,
         "categories": dash_data.get("categories", []),
         "status_distribution": dash_data.get("status_distribution", {}),
     }
@@ -202,6 +210,7 @@ def format_markdown_memo(memo_data: Dict[str, Any]) -> str:
     kpis = memo_data["kpis"]
     incidents = memo_data["critical_incidents"]
     threats = memo_data["threat_breakdown"]
+    pred_risks = memo_data.get("predictive_risks", [])
 
     lines = [
         f"# {memo_data['title']}",
@@ -240,10 +249,27 @@ def format_markdown_memo(memo_data: Dict[str, Any]) -> str:
             "",
         ])
 
+    if pred_risks:
+        lines.extend([
+            "---",
+            "",
+            "## 3. 7-Day Predictive Floor Breach Risk Radar (ML Forecast)",
+            "",
+            "GradientBoosting model forecast predicting breach probabilities over the next 7 days based on competitor price velocity, elasticity, and floor proximity:",
+            "",
+            "| SKU | Product Name | Risk Tier | 7-Day Breach Probability | Recommended Action |",
+            "| :--- | :--- | :--- | :--- | :--- |",
+        ])
+        for p in pred_risks[:8]:
+            lines.append(
+                f"| **{p['sku']}** | {p['name']} | `{p['risk_tier']}` | **{p['breach_probability_pct']}%** | `{p['preventative_action']}` |"
+            )
+        lines.append("")
+
     lines.extend([
         "---",
         "",
-        "## 3. Strategic Recommendations for Category Leadership",
+        "## 4. Strategic Recommendations for Category Leadership",
         "",
         "1. **Maintain Floor Defense on Flagged SKUs**: Do not override automated suppressions on `ELEC-002` or `BEAU-002`; predatory competitor pricing is below landed cost.",
         "2. **Investigate Supplier Terms for VRP Shocks**: In `Toys & Games` (`TOYS-001`), reference price drops indicate a possible new vendor or liquidation stream.",
