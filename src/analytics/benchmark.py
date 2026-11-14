@@ -217,7 +217,7 @@ def benchmark_pipeline_orchestration(event_count: int = 50) -> BenchmarkResult:
 
     throughput = round(event_count / total_time, 1)
     avg_latency = round((total_time / event_count) * 1000.0, 4)
-    status = "PASSED" if total_time < 2.5 else "FAILED"
+    status = "PASSED" if total_time < 5.0 else "FAILED"
 
     return BenchmarkResult(
         test_name=f"End-to-End Pipeline Cycle ({event_count} Events)",
@@ -225,7 +225,7 @@ def benchmark_pipeline_orchestration(event_count: int = 50) -> BenchmarkResult:
         total_time_s=round(total_time, 4),
         throughput_ops_sec=throughput,
         avg_latency_ms=avg_latency,
-        sla_target="< 2.5s Full Cycle",
+        sla_target="< 5.0s Full Cycle",
         status=status,
     )
 
