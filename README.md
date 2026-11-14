@@ -9,7 +9,7 @@
 
 An enterprise-grade, high-throughput automated pricing governance and real-time margin defense engine for multi-channel e-commerce sellers (Amazon, Walmart, Shopify, Target+). 
 
-The engine enforces guaranteed mathematical invariants ($\text{new\_price} \ge \text{floor\_price}$), protects catalogs from predatory algorithmic repricing wars, absorbs sudden carrier/fee inflation, mitigates Amazon Validated Reference Price (VRP) Buy Box shocks, and predicts 7-day floor breach risks using machine learning.
+The engine enforces guaranteed mathematical invariants (`new_price >= floor_price`), protects catalogs from predatory algorithmic repricing wars, absorbs sudden carrier/fee inflation, mitigates Amazon Validated Reference Price (VRP) Buy Box shocks, and predicts 7-day floor breach risks using machine learning.
 
 ---
 
@@ -45,15 +45,15 @@ In modern enterprise e-commerce, algorithmic repricers (such as FeedVisor, Repri
 3. **Hidden Cost Inflation & Volatility:** Wholesale COGS increases, dimensional weight carrier surcharges, and tiered marketplace commission structures continuously erode profit margins. Static floor prices fail to adjust when underlying logistics costs spike.
 4. **Auditability & Regulatory Risk:** Financial controllers require cryptographic proof that automated pricing bots never violate minimum margin agreements, and that pricing audit logs cannot be retroactively manipulated or deleted.
 
-**Realized Value:** Across our 52,750+ telemetry event dataset, this engine halted 4,262 catastrophic algorithmic undercuts, defending over **$661,149.75 in gross operating profit**.
+**Realized Value:** Across our 52,750+ telemetry event dataset, this engine halted 4,262 catastrophic algorithmic undercuts, defending over **\$661,149.75 in gross operating profit**.
 
 ---
 
 ## What the Engine Does
 
-- **Enforces Absolute Mathematical Invariants:** Evaluates every proposed price adjustment in $< 0.15\text{ ms}$, ensuring no selling price ever drops below dynamic landed unit costs plus minimum target dollar margins.
+- **Enforces Absolute Mathematical Invariants:** Evaluates every proposed price adjustment in `< 0.15 ms`, ensuring no selling price ever drops below dynamic landed unit costs plus minimum target dollar margins.
 - **Dynamic Floor Recalculation:** Continuously recalculates SKU cost floors using exact arbitrary-precision arithmetic (`Decimal`), automatically incorporating carrier fee inflation and category-specific marketplace referral rates.
-- **VRP Reference Price Anomaly Defense:** Monitors reference price velocity, detects systemic drift thresholds ($\ge 5\%$), and alerts category managers while preventing accidental Buy Box loss.
+- **VRP Reference Price Anomaly Defense:** Monitors reference price velocity, detects systemic drift thresholds (`>= 5%`), and alerts category managers while preventing accidental Buy Box loss.
 - **7-Day Machine Learning Breach Radar:** Employs a `GradientBoostingClassifier` trained on 52,750+ multi-scenario records to forecast which SKUs face imminent floor breach within the next 7 days with explainable root-cause attribution.
 - **Autonomous Listing Suppression Queue:** Automatically clamps dangerous prices to safe floors or routes catastrophic breach events to a dedicated deal suppression queue.
 - **Cryptographic Append-Only Audit Logging:** Enforces database-level triggers preventing any modification or deletion of price change events.
@@ -123,15 +123,15 @@ Calculates the exact break-even floor price required to absorb all variable fees
 $$\text{Floor Price} = \frac{\text{COGS} + \text{Packaging} + \text{Fulfillment} + \text{Shipping} + \text{Min Target Margin}}{1 - \text{Referral Fee Rate}}$$
 
 - Implemented entirely in Python `Decimal` (zero IEEE-754 floating-point rounding errors).
-- Automatically incorporates category-specific marketplace commission tiers (e.g., 15% standard, 8% consumer electronics over \$100).
+- Automatically incorporates category-specific marketplace commission tiers (e.g., 15% standard, 8% consumer electronics over $100).
 
 ### 2. Sub-Millisecond Guardrail Evaluation
 Defined in [`src/engine/guardrail.py`](file:///c:/Users/Uzer/Project/pricing-guardrail-engine/src/engine/guardrail.py).
 
 Evaluates inbound pricing proposals and assigns one of four deterministic states:
-1. `APPROVED`: Proposed price exceeds floor price with a healthy safety margin ($> \$2.00$).
-2. `WARNING (TIGHT BUFFER)`: Proposed price is above floor, but within $\$2.00$ or $5\%$ buffer of floor.
-3. `BLOCKED (FLOOR BREACH)`: Proposed price is less than floor price ($\text{price} < \text{floor}$). The engine halts repricing to prevent gross margin destruction.
+1. `APPROVED`: Proposed price exceeds floor price with a healthy safety margin (`> $2.00`).
+2. `WARNING (TIGHT BUFFER)`: Proposed price is above floor, but within `$2.00` or `5%` buffer of floor.
+3. `BLOCKED (FLOOR BREACH)`: Proposed price is less than floor price (`price < floor`). The engine halts repricing to prevent gross margin destruction.
 4. `SUPPRESSED`: Catalog listing is isolated in the suppression queue due to extreme market irrationality or negative margin risk.
 
 ### 3. Autonomous Repricing & Suppression Engine
@@ -147,18 +147,18 @@ Uses a `GradientBoostingClassifier` trained on 52,750+ real-world telemetry even
 
 - **Sample Size:** 52,750 events across 50 diverse SKUs and 8 product categories.
 - **Model Accuracy:** 100.00% test accuracy, 1.0000 ROC-AUC.
-- **Inference Latency:** 0.87 ms per prediction (exceeding $< 2.0\text{ ms}$ SLA target).
+- **Inference Latency:** 0.87 ms per prediction (exceeding `< 2.0 ms` SLA target).
 - **Top Predictive Feature Weights:**
   1. `competitor_gap_pct` (**41.62%**): Degree of competitor price undercutting.
   2. `elasticity_score` (**31.44%**): Demand volume sensitivity to price changes.
   3. `vrp_drift_pct` (**26.95%**): Velocity of Amazon Validated Reference Price erosion.
-- **Explainability:** Returns actionable natural-language risk drivers (e.g., *"Aggressive competitor undercutting (-61.8%)"*, *"High elasticity sensitivity (\(\varepsilon=-4.5\))"*).
+- **Explainability:** Returns actionable natural-language risk drivers (e.g., *"Aggressive competitor undercutting (-61.8%)"*, *"High elasticity sensitivity (ε = -4.5)"*).
 
 ### 5. End-to-End Autonomous Pipeline Orchestrator
 Defined in [`src/engine/orchestrator.py`](file:///c:/Users/Uzer/Project/pricing-guardrail-engine/src/engine/orchestrator.py) and [`src/engine/main.py`](file:///c:/Users/Uzer/Project/pricing-guardrail-engine/src/engine/main.py).
 
 - Continuous batch processing daemon handling telemetry ingestion, evaluation, policy enforcement, database commits, and alert dispatching.
-- Average cycle execution time: $< 2.5\text{ s}$ for 50-event batches.
+- Average cycle execution time: `< 2.5 s` for 50-event batches.
 
 ---
 
@@ -221,10 +221,10 @@ Automated benchmark tests in [`src/analytics/benchmark.py`](file:///c:/Users/Uze
 
 | Benchmark | Actual Performance | SLA Target | Status |
 | :--- | :--- | :--- | :--- |
-| **Floor Price Calculator** | 0.003 ms / calculation | $< 0.100\text{ ms}$ | **PASSED** |
-| **Guardrail Engine Invariant Check** | 0.112 ms / evaluation | $< 0.500\text{ ms}$ | **PASSED** |
-| **Predictive Inference (ML)** | 0.871 ms / prediction | $< 2.000\text{ ms}$ | **PASSED** |
-| **Pipeline Batch Orchestration** | 2.14 s / 50 events | $< 5.000\text{ s}$ | **PASSED** |
+| **Floor Price Calculator** | 0.003 ms / calculation | `< 0.100 ms` | **PASSED** |
+| **Guardrail Engine Invariant Check** | 0.112 ms / evaluation | `< 0.500 ms` | **PASSED** |
+| **Predictive Inference (ML)** | 0.871 ms / prediction | `< 2.000 ms` | **PASSED** |
+| **Pipeline Batch Orchestration** | 2.14 s / 50 events | `< 5.000 s` | **PASSED** |
 | **Concurrent DB Pool Stress** | 100% success (zero dropped conns) | 100% Reliability | **PASSED** |
 
 ---
@@ -407,7 +407,7 @@ python -m pytest tests/test_playwright_ui.py -v
 
 - [x] **Phase 1: Foundation & Dynamic Cost Floor Engine**
   - Arbitrary-precision break-even floor price calculator.
-  - Sub-millisecond mathematical invariant evaluation ($\text{price} \ge \text{floor}$).
+  - Sub-millisecond mathematical invariant evaluation (`price >= floor`).
 - [x] **Phase 2: Ingestion Pipeline & PostgreSQL Layer**
   - Parameterized database repository with zero string formatting.
   - Telemetry validation, schema migrations, and connection pooling.
