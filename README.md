@@ -29,6 +29,7 @@ The engine enforces guaranteed mathematical invariants (`new_price >= floor_pric
 - [Modern Executive Dashboard & REST API](#modern-executive-dashboard--rest-api)
 - [Telemetry Dataset & Scenarios](#telemetry-dataset--scenarios)
 - [Performance Benchmarks & SLAs](#performance-benchmarks--slas)
+- [AI Agent Onboarding & Skills (Claude, Codex, Gemini, Cursor)](#ai-agent-onboarding--skills-claude-codex-gemini-cursor)
 - [Project Directory Structure](#project-directory-structure)
 - [Getting Started & Installation](#getting-started--installation)
 - [Running the Application](#running-the-application)
@@ -372,14 +373,49 @@ Automated benchmark tests in [`src/analytics/benchmark.py`](file:///c:/Users/Uze
 
 ---
 
+## AI Agent Onboarding & Skills (Claude, Codex, Gemini, Cursor)
+
+To ensure any automated AI developer tool, LLM coding assistant, or human engineer can instantly understand the system architecture, mathematical formulas, setup commands, and development standards, this repository provides native AI agent skills and configuration files:
+
+### 1. Dedicated Agent Skill Package (`pricing-guardrail-engine`)
+Defined in [`.agents/skills/pricing-guardrail-engine/`](file:///c:/Users/Uzer/Project/pricing-guardrail-engine/.agents/skills/pricing-guardrail-engine/) and mirrored at [`skills/pricing-guardrail-engine/`](file:///c:/Users/Uzer/Project/pricing-guardrail-engine/skills/pricing-guardrail-engine/):
+
+- **[`SKILL.md`](file:///c:/Users/Uzer/Project/pricing-guardrail-engine/.agents/skills/pricing-guardrail-engine/SKILL.md):** The master skill specification with standardized YAML frontmatter, operational runbooks, command reference, and invariant rules.
+- **[`references/architecture.md`](file:///c:/Users/Uzer/Project/pricing-guardrail-engine/.agents/skills/pricing-guardrail-engine/references/architecture.md):** Component interaction diagram, module responsibilities, and data flows.
+- **[`references/cost_floor_math.md`](file:///c:/Users/Uzer/Project/pricing-guardrail-engine/.agents/skills/pricing-guardrail-engine/references/cost_floor_math.md):** Exact `Decimal` break-even formulas and marketplace commission tier tables.
+- **[`references/zero_etl_connectors.md`](file:///c:/Users/Uzer/Project/pricing-guardrail-engine/.agents/skills/pricing-guardrail-engine/references/zero_etl_connectors.md):** Direct SQL/REST live stream architecture and `SchemaMapping` normalizer.
+- **[`references/database_and_immutability.md`](file:///c:/Users/Uzer/Project/pricing-guardrail-engine/.agents/skills/pricing-guardrail-engine/references/database_and_immutability.md):** PostgreSQL schemas and trigger-enforced append-only audit rules.
+- **[`references/machine_learning_radar.md`](file:///c:/Users/Uzer/Project/pricing-guardrail-engine/.agents/skills/pricing-guardrail-engine/references/machine_learning_radar.md):** GradientBoosting 7-day risk predictor, features, and risk tier action playbooks.
+- **[`references/testing_and_benchmarks.md`](file:///c:/Users/Uzer/Project/pricing-guardrail-engine/.agents/skills/pricing-guardrail-engine/references/testing_and_benchmarks.md):** 119-test pytest suite breakdown, latency SLAs, and performance benchmarks.
+
+### 2. Auto-Discovery Entrypoints Across AI Toolchains
+
+| Configuration File | AI Coding Assistant | Purpose & Discovery |
+| :--- | :--- | :--- |
+| **[`CLAUDE.md`](file:///c:/Users/Uzer/Project/pricing-guardrail-engine/CLAUDE.md)** | **Anthropic Claude Code** | Auto-discovered by Claude Code on session startup; details architecture, commands, and invariants. |
+| **[`AGENTS.md`](file:///c:/Users/Uzer/Project/pricing-guardrail-engine/AGENTS.md)** | **OpenAI Codex / Cursor** | Universal AI agent directives; specifies strict `Decimal` rules, append-only triggers, and zero-ETL connectors. |
+| **[`GEMINI.md`](file:///c:/Users/Uzer/Project/pricing-guardrail-engine/GEMINI.md)** | **Google Gemini / Antigravity** | Workspace rules and agent guidance for Antigravity and Gemini CLI. |
+
+---
+
 ## Project Directory Structure
 
 ```
 pricing-guardrail-engine/
-├── config/                      # Application and database configuration
+├── .agents/
+│   └── skills/
+│       └── pricing-guardrail-engine/  # Standard agent skill package
+│           ├── SKILL.md               # Master AI guide & YAML frontmatter
+│           └── references/            # Deep-dive architectural references
+├── skills/
+│   └── pricing-guardrail-engine/      # Root-level skill package mirror
+├── AGENTS.md                          # Universal instructions for OpenAI Codex & Cursor
+├── CLAUDE.md                          # Project guide for Anthropic Claude Code
+├── GEMINI.md                          # Workspace rules for Google Gemini & Antigravity
+├── config/                            # Application and database configuration
 ├── db/
-│   ├── migrations/              # PostgreSQL DDL migrations (001_init, 002_vrp, 003_audit)
-│   └── seeds/                   # Mock catalog seed datasets
+│   ├── migrations/                    # PostgreSQL DDL migrations (001_init, 002_vrp, 003_audit)
+│   └── seeds/                         # Mock catalog seed datasets
 ├── docs/
 │   ├── benchmarks/              # Performance SLA benchmark reports
 │   ├── security/                # Database compliance and audit reports
@@ -639,6 +675,10 @@ python -m pytest tests/test_playwright_ui.py -v
   - Flexible `SchemaMapping` dynamically mapping arbitrary client fields with custom transforms.
   - Sub-millisecond in-memory guardrail evaluation (`< 0.15 ms`) with zero local database write overhead.
   - Full regression pass with 119/119 tests passing (100% pass rate).
+- [x] **Phase 8: Multi-Agent Skills & AI Onboarding Ecosystem**
+  - Native Agent Skill package (`.agents/skills/pricing-guardrail-engine/`) with deep-dive technical references.
+  - Multi-agent auto-discovery configuration files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`).
+  - Zero-friction onboarding for Claude Code, OpenAI Codex, Google Gemini, Antigravity, and Cursor.
 
 ---
 
