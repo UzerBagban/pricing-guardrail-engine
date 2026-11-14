@@ -57,6 +57,7 @@ In modern enterprise e-commerce, algorithmic repricers (such as FeedVisor, Repri
 - **VRP Reference Price Anomaly Defense:** Monitors reference price velocity, detects systemic drift thresholds (`>= 5%`), and alerts category managers while preventing accidental Buy Box loss.
 - **7-Day Machine Learning Breach Radar:** Employs a `GradientBoostingClassifier` trained on 52,750+ multi-scenario records to forecast which SKUs face imminent floor breach within the next 7 days with explainable root-cause attribution.
 - **Autonomous Listing Suppression Queue:** Automatically clamps dangerous prices to safe floors or routes catastrophic breach events to a dedicated deal suppression queue.
+- **Zero-ETL Federated Company Connectors:** Integrates directly with client company databases (PostgreSQL, MySQL, SQLite) and REST/ERP APIs, eliminating the need to migrate or duplicate massive datasets. Streams pricing data on-demand and evaluates guardrails in memory (`< 0.15 ms`), saving massive database read/write time, cloud storage costs, and eliminating data synchronization drift.
 - **Cryptographic Append-Only Audit Logging:** Enforces database-level triggers preventing any modification or deletion of price change events.
 - **Modern Executive Dashboard & REST API:** Serves a decoupled FastAPI service with real-time visual analytics, instant simulation sandbox, and executive diagnostic memos.
 
@@ -65,51 +66,47 @@ In modern enterprise e-commerce, algorithmic repricers (such as FeedVisor, Repri
 ## System Architecture & Data Flow
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                      Inbound Telemetry Streams                         │
-│  (Marketplace BuyBox, Competitor Scraping, VRP Updates, Carrier Costs) │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                   Input Validation & Normalization                     │
-│    (Zero String Concatenation, Parameterized SQL, Type Enforcement)    │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                      Dynamic Cost Floor Calculator                     │
-│    Floor = [ COGS + Packaging + Shipping + Target$ ] / (1 - RefFee%)   │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                  Sub-Millisecond Guardrail Engine                      │
-│   ┌───────────────────────┬──────────────────────┬─────────────────┐   │
-│   │ Proposed >= Floor     │ Proposed < Floor     │ Drift >= 5.0%   │   │
-│   │ [APPROVED]            │ [BLOCKED (BREACH)]   │ [VRP WARNING]   │   │
-│   └───────────┬───────────┴──────────┬───────────┴────────┬────────┘   │
-└───────────────┼──────────────────────┼────────────────────┼────────────┘
-                │                      │                    │
-                ▼                      ▼                    ▼
-┌──────────────────────┐┌──────────────────────┐┌────────────────────────┐
-│ Repricer Adjuster    ││ Suppression Queue    ││ Webhook & Slack Alerts │
-│ (Execute Safe Price) ││ (Block Execution)    ││ (Category Manager Ops) │
-└───────────────┬──────┘└──────────────┬───────┘└───────────┬────────────┘
-                │                      │                    │
-                └──────────────────────┼────────────────────┘
-                                       │
-                                       ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                 PostgreSQL Immutable Audit Trail                       │
-│    (Trigger-Enforced Append-Only Logs: price_change_log, telemetry)    │
-└──────────────────────────────────────┬─────────────────────────────────┘
-                                       │
-                                       ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│             Predictive Forecaster & Executive Dashboard                │
-│    (GradientBoosting 7-Day Radar, FastAPI Endpoints, Modern UI)        │
-└────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐  ┌──────────────────────────────────────────────┐
+│       Standard Inbound Telemetry Streams     │  │     External Company Infrastructure          │
+│ (Marketplace BuyBox, Scrapers, Carrier Fees) │  │  (Client PostgreSQL, MySQL, SQLite, ERP REST)│
+└──────────────────────┬───────────────────────┘  └──────────────────────┬───────────────────────┘
+                       │                                                 │ (Zero-ETL Direct Connection)
+                       ▼                                                 ▼
+┌──────────────────────────────────────────────┐  ┌──────────────────────────────────────────────┐
+│     Input Validation & DB Ingestion Layer    │  │       SchemaMapping Normalization Layer      │
+│  (Parameterized SQL, Append-Only Telemetry)  │  │   (Field Normalization, Custom Unit Scalers) │
+└──────────────────────┬───────────────────────┘  └──────────────────────┬───────────────────────┘
+                       │                                                 │
+                       └───────────────────────┬─────────────────────────┘
+                                               │ (Normalized Stream)
+                                               ▼
+┌────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                              Dynamic Cost Floor Calculator (Decimal)                           │
+│             Floor = [ COGS + Packaging + Shipping + Target$ ] / (1 - RefFee%)                  │
+└──────────────────────────────────────────────┬─────────────────────────────────────────────────┘
+                                               │
+                                               ▼
+┌────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                               Sub-Millisecond Guardrail Engine                                 │
+│   ┌───────────────────────────┬───────────────────────────┬────────────────────────────────┐   │
+│   │ Proposed >= Floor         │ Proposed < Floor          │ Drift >= 5.0%                  │   │
+│   │ [APPROVED]                │ [BLOCKED (BREACH)]        │ [VRP WARNING]                  │   │
+│   └─────────────┬─────────────┴─────────────┬─────────────┴────────────────┬───────────────┘   │
+└─────────────────┼───────────────────────────┼──────────────────────────────┼───────────────────┘
+                  │                           │                              │
+                  ▼                           ▼                              ▼
+┌───────────────────────────┐┌───────────────────────────┐┌─────────────────────────────────────┐
+│ Repricer Output / Clamp   ││ Suppression Queue         ││ Webhook & Slack Alerts              │
+│ (Execute Safe Pricing)    ││ (Block Destructive Reprice││ (Client Callbacks & Ops Alerts)     │
+└─────────────┬─────────────┘└─────────────┬─────────────┘└──────────────────┬──────────────────┘
+              │                            │                                 │
+              └────────────────────────────┼─────────────────────────────────┘
+                                           │
+                                           ▼
+┌────────────────────────────────────────────────────────────────────────────────────────────────┐
+│              PostgreSQL Immutable Audit Trail  &  Decoupled Executive UI / REST API            │
+│   (Trigger-Enforced DB Immutability, 7-Day ML Forecaster, Real-Time Chart.js Visualizations)   │
+└────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -193,13 +190,114 @@ Defined in [`src/engine/orchestrator.py`](file:///c:/Users/Uzer/Project/pricing-
 ### 6. Zero-ETL Federated Company Connectors
 Defined in [`src/connectors/base.py`](file:///c:/Users/Uzer/Project/pricing-guardrail-engine/src/connectors/base.py), [`src/connectors/sql_connector.py`](file:///c:/Users/Uzer/Project/pricing-guardrail-engine/src/connectors/sql_connector.py), [`src/connectors/rest_connector.py`](file:///c:/Users/Uzer/Project/pricing-guardrail-engine/src/connectors/rest_connector.py), and [`src/connectors/manager.py`](file:///c:/Users/Uzer/Project/pricing-guardrail-engine/src/connectors/manager.py).
 
-Enterprise sellers typically maintain their own pricing, ERP, inventory, and catalog databases on their own infrastructure. Requiring companies to migrate or duplicate historical tables into our local database creates massive write latency, high cloud storage overhead, security friction, and data sync drift.
+Enterprise multi-channel sellers already store their product catalogs, supplier purchase orders, inventory counts, and repricing rules in their own production databases (PostgreSQL, MySQL, SQLite, Oracle) or ERP REST APIs (SAP, NetSuite, Shopify Plus). 
 
-To solve this, the engine provides **Zero-ETL Live Connectors**:
-- **Direct SQL Streaming (`DirectSQLConnector`):** Connects directly to external company databases (PostgreSQL, MySQL, SQLite) using read-only cursors. Streams live pricing proposals on-demand without copying historical tables.
-- **Direct REST/ERP Webhooks (`DirectRESTConnector`):** Integrates with external client inventory APIs, pulling live telemetry feeds via authenticated endpoints and returning guardrail decisions back to client webhooks.
-- **Dynamic Schema Normalization (`SchemaMapping`):** Translates arbitrary external company schemas (e.g., `item_code` $\to$ `sku`, `supplier_unit_cost` $\to$ `cogs`, `retail_price` $\to$ `our_price`) into canonical telemetry structures with custom type and unit conversions (e.g. cents to dollars).
-- **In-Memory Guardrail Evaluation:** Inbound records are checked against cost floor invariants and margin policies entirely in volatile memory (`< 0.15 ms/item`), achieving sub-millisecond evaluation with **zero local database write amplification**. Decisions (`APPROVED`, `WARNING`, `BLOCKED`, `CLAMPED`) are returned immediately or dispatched to external callback endpoints.
+Requiring companies to migrate or copy millions of rows into our local database creates massive read/write latency, security friction, database synchronization drift, and unnecessary cloud storage costs. To solve this, the engine provides **Zero-ETL Live Connectors**.
+
+#### Zero-ETL vs. Traditional Data Migration
+| Metric / Characteristic | Traditional Database Migration (ETL) | Zero-ETL Live Connectors (This Engine) |
+| :--- | :--- | :--- |
+| **Data Duplication & Storage** | Full copy of catalog tables duplicated locally | **0 KB local storage** (strictly in-memory stream) |
+| **Data Freshness / Drift** | Batches lag by minutes to hours | **Zero drift** (reads live client source of truth) |
+| **Write I/O Amplification** | Heavy disk writes on local DB for every ingest | **Zero write amplification** on local database |
+| **Evaluation Latency** | Seconds to minutes for ETL pipeline cycles | **< 0.15 ms per SKU** in-memory evaluation |
+| **Client Schema Changes** | Breaks rigid database schemas, requires DDL migrations | **Flexible `SchemaMapping`** adapts dynamically |
+| **Security & Privacy** | Storing customer PII / full catalogs on engine servers | **Read-only streaming cursor** with ephemeral memory |
+
+#### How It Works: Architecture & Stream Normalization
+```
+┌─────────────────────────────────┐
+│ External Client Infrastructure  │
+│ (PostgreSQL, MySQL, REST API)   │
+└────────────────┬────────────────┘
+                 │ (1) Direct Read-Only Stream (Zero Local DB Write)
+                 ▼
+┌─────────────────────────────────┐
+│ SchemaMapping Normalizer        │  Translates custom field names
+│ (e.g., 'item_id' -> 'sku')      │  & applies custom unit transforms
+└────────────────┬────────────────┘
+                 │ (2) Canonical In-Memory Telemetry
+                 ▼
+┌─────────────────────────────────┐
+│ In-Memory Guardrail Engine      │  Exact Decimal cost floor math:
+│ (< 0.15 ms / SKU evaluation)    │  price >= floor_price
+└────────────────┬────────────────┘
+                 │ (3) Decision Dispatch (APPROVED, WARNING, BLOCKED, CLAMPED)
+                 ▼
+┌─────────────────────────────────┐
+│ External Client Webhook / API   │
+└─────────────────────────────────┘
+```
+
+1. **Direct SQL Connector (`DirectSQLConnector`):**
+   - Connects directly to external client databases (PostgreSQL, MySQL, SQLite) using read-only cursors.
+   - Streams live SKU updates on demand with zero local table persistence.
+2. **Direct REST/ERP Connector (`DirectRESTConnector`):**
+   - Fetches live catalog batches from client HTTP endpoints using Bearer token or API key authentication.
+   - Dispatches guardrail decisions directly to client callback webhook URLs.
+3. **Dynamic Schema Normalization (`SchemaMapping`):**
+   - Maps arbitrary external company schemas (e.g., `item_code` $\to$ `sku`, `supplier_unit_cost` $\to$ `cogs`, `retail_price` $\to$ `our_price`) into canonical telemetry structures.
+   - Built-in type coercion (`Decimal`, `float`, `int`, `str`) and unit transformation (e.g., auto-converting cents to dollars: `val / 100`).
+4. **Federated Connector Manager (`FederatedConnectorManager`):**
+   - Multi-tenant registry managing client connectors.
+   - Executes live, sub-millisecond in-memory guardrail evaluations across inbound SKU batches.
+
+#### Example: Registering an External SQL Database
+```json
+POST /api/v1/connectors/register
+{
+  "tenant_id": "acme_retail_corp",
+  "name": "Acme Production PostgreSQL",
+  "connector_type": "sql",
+  "connection_config": {
+    "connection_string": "postgresql://reader:secure_pass@db.acme.com:5432/acme_inventory",
+    "query": "SELECT item_code, wholesale_cost, current_retail, min_margin FROM live_catalog"
+  },
+  "schema_mapping": {
+    "field_map": {
+      "item_code": "sku",
+      "wholesale_cost": "cogs",
+      "current_retail": "our_price",
+      "min_margin": "min_margin_amount"
+    },
+    "value_transforms": {
+      "wholesale_cost": "cogs / 100"
+    }
+  }
+}
+```
+
+#### Example: Evaluating Live External Feeds In-Memory
+```json
+POST /api/v1/connectors/evaluate-live
+{
+  "tenant_id": "acme_retail_corp",
+  "limit": 50
+}
+```
+**Response (Instant In-Memory Verdict):**
+```json
+{
+  "tenant_id": "acme_retail_corp",
+  "total_evaluated": 50,
+  "approved": 42,
+  "warnings": 5,
+  "blocked": 3,
+  "total_defended_dollars": 142.50,
+  "execution_time_ms": 6.84,
+  "avg_latency_per_sku_ms": 0.137,
+  "results": [
+    {
+      "sku": "ACME-WIDGET-01",
+      "our_price": 29.99,
+      "floor_price": 21.45,
+      "status": "APPROVED",
+      "margin_dollars_defended": 0.0,
+      "action": "MAINTAIN"
+    }
+  ]
+}
+```
 
 ---
 
@@ -419,6 +517,66 @@ python scripts/populate_large_dataset.py
 To retrain the GradientBoosting model on the latest database records:
 ```bash
 python -c "from src.engine.predictive import load_or_train_model; load_or_train_model(force_retrain=True)"
+```
+
+### 5. Zero-ETL External Data Integration & Live Evaluation
+To connect an external company data source directly and evaluate guardrails in memory without data migration:
+
+```bash
+# 1. Register external client connector (SQL or REST):
+curl -X POST http://127.0.0.1:8000/api/v1/connectors/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenant_id": "client_alpha",
+    "name": "Alpha ERP SQLite Feed",
+    "connector_type": "sql",
+    "connection_config": {
+      "connection_string": "sqlite:///data/alpha_inventory.db",
+      "query": "SELECT item_code, unit_cogs, price FROM inventory"
+    },
+    "schema_mapping": {
+      "field_map": {
+        "item_code": "sku",
+        "unit_cogs": "cogs",
+        "price": "our_price"
+      }
+    }
+  }'
+
+# 2. Test connectivity to the external data source:
+curl -X POST http://127.0.0.1:8000/api/v1/connectors/test \
+  -H "Content-Type: application/json" \
+  -d '{"tenant_id": "client_alpha"}'
+
+# 3. Stream live client data and evaluate guardrails in memory (< 0.15 ms/SKU):
+curl -X POST http://127.0.0.1:8000/api/v1/connectors/evaluate-live \
+  -H "Content-Type: application/json" \
+  -d '{"tenant_id": "client_alpha", "limit": 100}'
+```
+
+Or via Python:
+```python
+from decimal import Decimal
+from src.connectors.sql_connector import DirectSQLConnector
+from src.connectors.base import SchemaMapping
+from src.connectors.manager import connector_registry
+
+# Register external company database
+connector = DirectSQLConnector(
+    name="Client Inventory",
+    connection_string="sqlite:///external_client.db",
+    query="SELECT sku_id, wholesale_cogs, retail_price FROM catalog",
+    schema_mapping=SchemaMapping(field_map={
+        "sku_id": "sku",
+        "wholesale_cogs": "cogs",
+        "retail_price": "our_price",
+    })
+)
+connector_registry.register("client_01", connector)
+
+# Stream and evaluate live in-memory (< 0.15ms / SKU)
+evaluation = connector_registry.evaluate_live_stream("client_01", limit=100)
+print(f"Evaluated: {evaluation.total_evaluated}, Approved: {evaluation.approved}, Defended: ${evaluation.total_defended_dollars}")
 ```
 
 ---
