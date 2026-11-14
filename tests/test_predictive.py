@@ -34,9 +34,13 @@ class TestPredictiveEngine(TestCase):
         test_model_path = "models/test_predictor.joblib"
         metrics = train_model(save_path=test_model_path)
         self.assertEqual(metrics["status"], "trained")
+        self.assertEqual(metrics["train_ratio"], 0.80)
+        self.assertEqual(metrics["test_ratio"], 0.20)
         self.assertGreaterEqual(metrics["test_accuracy"], 0.85)
         self.assertIn("feature_importances", metrics)
         self.assertTrue(os.path.exists(test_model_path))
+        self.assertTrue(os.path.exists("docs/models/model_performance_evaluation.png"))
+        self.assertTrue(os.path.exists("docs/models/model_evaluation_report.json"))
         # Cleanup test artifact
         try:
             os.remove(test_model_path)

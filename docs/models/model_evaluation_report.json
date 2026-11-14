@@ -1,0 +1,50 @@
+{
+  "model_type": "GradientBoostingClassifier",
+  "generated_at": "2026-11-14T17:35:45.733203",
+  "dataset_split": {
+    "total_samples": 52750,
+    "train_ratio": 0.8,
+    "test_ratio": 0.2,
+    "train_samples": 42200,
+    "test_samples": 10550,
+    "stratified": true
+  },
+  "performance_metrics": {
+    "accuracy": 1.0,
+    "roc_auc": 1.0,
+    "f1_score": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "average_precision": 1.0,
+    "inference_latency_ms": 0.871
+  },
+  "confusion_matrix": {
+    "true_negatives": 8020,
+    "false_positives": 0,
+    "false_negatives": 0,
+    "true_positives": 2530
+  },
+  "feature_importances": {
+    "floor_buffer_pct": 0.0,
+    "competitor_gap_pct": 0.4162,
+    "vrp_drift_pct": 0.2695,
+    "elasticity_score": 0.3144,
+    "competitor_count": 0.0,
+    "calculated_margin_pct": 0.0
+  },
+  "roc_curve_sampled": [
+    {
+      "fpr": 0.0,
+      "tpr": 0.0
+    },
+    {
+      "fpr": 0.0,
+      "tpr": 1.0
+    },
+    {
+      "fpr": 1.0,
+      "tpr": 1.0
+    }
+  ],
+  "image_artifact": "C:\\Users\\Uzer\\Project\\pricing-guardrail-engine\\docs\\models\\model_performance_evaluation.png"
+}

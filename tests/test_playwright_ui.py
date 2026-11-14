@@ -42,6 +42,7 @@ class TestPlaywrightModernUI(unittest.TestCase):
                     "#chart-status-donut",
                     "#chart-vrp-trend",
                     "#chart-category-margin",
+                    "#chart-model-roc",
                 ]
                 for sel in chart_selectors:
                     canvas = page.locator(sel)

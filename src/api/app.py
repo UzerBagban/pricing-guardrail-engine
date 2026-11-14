@@ -178,6 +178,22 @@ def get_breach_forecast() -> List[Dict[str, Any]]:
     return sorted(forecasts, key=lambda x: x.get("breach_probability_7d", 0.0), reverse=True)
 
 
+@app.get("/api/v1/model-evaluation", tags=["Machine Learning"])
+def get_model_evaluation_metrics() -> Dict[str, Any]:
+    """Retrieve machine learning model quality report, ROC-AUC, 80/20 train/test split, and confusion matrix."""
+    report_path = os.path.join("docs", "models", "model_evaluation_report.json")
+    if os.path.exists(report_path):
+        import json
+        with open(report_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    load_or_train_model()
+    if os.path.exists(report_path):
+        import json
+        with open(report_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {"status": "trained", "model_type": "GradientBoostingClassifier"}
+
+
 @app.post("/api/v1/simulate", response_model=SimulationResponse, tags=["Guardrail Engine"])
 def simulate_guardrail(req: SimulationRequest) -> SimulationResponse:
     """Simulate real-time guardrail evaluation and sub-millisecond invariant enforcement."""
