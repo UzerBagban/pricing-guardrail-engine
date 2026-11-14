@@ -39,12 +39,17 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# Enable CORS for decoupled frontends
+# Enable CORS for decoupled frontends with secure origin management
+cors_origins_env = os.getenv("CORS_ORIGINS", "*")
+configured_origins = [o.strip() for o in cors_origins_env.split(",") if o.strip()]
+# When wildcard origin is used, credentials must be disabled per CORS specification
+allow_credentials = False if configured_origins == ["*"] else True
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=configured_origins,
+    allow_credentials=allow_credentials,
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 

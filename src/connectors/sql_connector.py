@@ -7,12 +7,23 @@ Executes read-only queries with schema normalization without migrating data into
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 from decimal import Decimal
+from urllib.parse import urlparse
 
 from src.connectors.base import BaseDataConnector, NormalizedTelemetry, SchemaMapping
 
 log = logging.getLogger("connectors.sql")
+
+SAFE_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def validate_sql_identifier(identifier: str) -> str:
+    """Validate that table and column names strictly adhere to alphanumeric SQL identifiers."""
+    if not identifier or not SAFE_IDENTIFIER_PATTERN.match(identifier):
+        raise ValueError(f"Unsafe or invalid SQL identifier detected: {identifier!r}")
+    return identifier
 
 
 class DirectSQLConnector(BaseDataConnector):
@@ -30,8 +41,8 @@ class DirectSQLConnector(BaseDataConnector):
     ):
         super().__init__(tenant_id=tenant_id, name=name, schema_mapping=schema_mapping)
         self.connection_url = connection_url
-        self.telemetry_table = telemetry_table
-        self.catalog_table = catalog_table
+        self.telemetry_table = validate_sql_identifier(telemetry_table)
+        self.catalog_table = validate_sql_identifier(catalog_table) if catalog_table else None
         self.callback_webhook = callback_webhook
 
     def _get_connection(self):
@@ -57,7 +68,7 @@ class DirectSQLConnector(BaseDataConnector):
             conn = self._get_connection()
             try:
                 cur = conn.cursor()
-                cur.execute(f"SELECT 1 FROM {self.telemetry_table} LIMIT 1")
+                cur.execute(f"SELECT 1 FROM {self.telemetry_table} LIMIT 1")  # nosec B608 - validated identifier
                 _ = cur.fetchone()
                 return True, f"Successfully connected to external database table '{self.telemetry_table}'"
             finally:
@@ -70,7 +81,7 @@ class DirectSQLConnector(BaseDataConnector):
         conn = self._get_connection()
         try:
             cur = conn.cursor()
-            query = f"SELECT * FROM {self.telemetry_table} ORDER BY 1 DESC"
+            query = f"SELECT * FROM {self.telemetry_table} ORDER BY 1 DESC"  # nosec B608 - validated identifier
             if limit:
                 query += f" LIMIT {int(limit)}"
             cur.execute(query)
@@ -86,8 +97,8 @@ class DirectSQLConnector(BaseDataConnector):
         conn = self._get_connection()
         try:
             cur = conn.cursor()
-            sku_col = self.schema_mapping.field_map.get("sku", "sku")
-            query = f"SELECT * FROM {self.telemetry_table} WHERE {sku_col} = %s LIMIT 1"
+            sku_col = validate_sql_identifier(self.schema_mapping.field_map.get("sku", "sku"))
+            query = f"SELECT * FROM {self.telemetry_table} WHERE {sku_col} = %s LIMIT 1"  # nosec B608 - validated identifier
             cur.execute(query, (sku,))
             row = cur.fetchone()
             if row:
@@ -101,6 +112,11 @@ class DirectSQLConnector(BaseDataConnector):
         if not self.callback_webhook:
             log.info("No callback webhook configured for tenant %s. Decision logged locally.", self.tenant_id)
             return True
+
+        parsed = urlparse(self.callback_webhook)
+        if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+            log.error("Invalid or non-HTTP webhook URL scheme: %s", parsed.scheme)
+            return False
 
         import urllib.request
         import json
@@ -117,7 +133,7 @@ class DirectSQLConnector(BaseDataConnector):
                 headers={"Content-Type": "application/json", "User-Agent": "PricingGuardrailConnector/1.0"},
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=5) as res:
+            with urllib.request.urlopen(req, timeout=5) as res:  # nosec B310
                 return res.status in (200, 201, 202, 204)
         except Exception as exc:
             log.warning("Failed to push decision to client callback: %s", exc)

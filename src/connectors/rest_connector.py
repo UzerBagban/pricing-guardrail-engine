@@ -34,6 +34,10 @@ class DirectRESTConnector(BaseDataConnector):
         self.callback_webhook = callback_webhook
 
     def _make_request(self, url: str, method: str = "GET", data: Optional[Dict[str, Any]] = None) -> Any:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+            raise ValueError(f"Insecure or invalid URL scheme '{parsed.scheme}'; only HTTP/HTTPS are allowed.")
+
         headers = {
             "Accept": "application/json",
             "User-Agent": "PricingGuardrailConnector/1.0",
@@ -46,7 +50,7 @@ class DirectRESTConnector(BaseDataConnector):
             headers["Content-Type"] = "application/json"
 
         req = urllib.request.Request(url, data=req_data, headers=headers, method=method)
-        with urllib.request.urlopen(req, timeout=10) as response:
+        with urllib.request.urlopen(req, timeout=10) as response:  # nosec B310
             return json.loads(response.read().decode("utf-8"))
 
     def test_connection(self) -> Tuple[bool, str]:
