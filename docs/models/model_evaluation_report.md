@@ -1,6 +1,6 @@
 # 7-Day Predictive Floor Breach Model — Quality & Validation Report
 
-**Generated:** 2026-11-14 17:35:45 UTC  
+**Generated:** 2026-11-14 17:53:46 UTC  
 **Model Type:** `GradientBoostingClassifier` (scikit-learn)  
 **Dataset Scale:** 52,750 total marketplace telemetry samples  
 
