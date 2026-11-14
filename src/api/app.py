@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from src.analytics.dashboard import get_full_dashboard_data, render_html_dashboard
 from src.analytics.security_audit import run_security_compliance_audit
+from src.connectors import default_registry, DirectSQLConnector, DirectRESTConnector, SchemaMapping
 from src.engine.calculator import CostBreakdown
 from src.engine.guardrail import PriceEvaluationInput, VRPGuardrailEngine
 from src.engine.predictive import predict_sku_risk, load_or_train_model
@@ -85,6 +86,23 @@ class HealthResponse(BaseModel):
     version: str
     database_connected: bool
     timestamp: str
+
+
+class ConnectorRegistrationRequest(BaseModel):
+    tenant_id: str = Field(..., description="Unique client identifier, e.g. company_acme")
+    name: str = Field(..., description="Company or store display name")
+    connector_type: str = Field("sql", description="'sql' or 'rest'")
+    connection_url: Optional[str] = Field(None, description="Database URL (postgresql://...) or REST API endpoint")
+    telemetry_table: Optional[str] = Field("pricing_feed", description="Table name for SQL connector")
+    auth_header: Optional[str] = Field(None, description="Authorization header for REST connector")
+    callback_webhook: Optional[str] = Field(None, description="Webhook URL for pushing guardrail decisions")
+    field_mappings: Optional[Dict[str, str]] = Field(None, description="Mapping from client column names to standard fields")
+
+
+class LiveEvaluationRequest(BaseModel):
+    tenant_id: str = Field(..., description="Tenant ID of the registered connector")
+    limit: int = Field(50, ge=1, le=500, description="Number of live items to stream and evaluate")
+    push_decisions: bool = Field(False, description="Whether to dispatch verdicts to the client callback")
 
 
 # ============================================================================
@@ -278,6 +296,91 @@ def simulate_guardrail(req: SimulationRequest) -> SimulationResponse:
 def get_security_audit_report() -> Dict[str, Any]:
     """Retrieve cryptographic database tamper-proofing and compliance audit status."""
     return run_security_compliance_audit().to_dict()
+
+
+# ============================================================================
+# Zero-ETL Federated Company Data Connectors
+# ============================================================================
+
+@app.post("/api/v1/connectors/register", tags=["Federated Connectors"])
+def register_external_connector(req: ConnectorRegistrationRequest) -> Dict[str, Any]:
+    """Register an external company direct-connect data source (SQL or REST API)."""
+    mapping = SchemaMapping(field_map=req.field_mappings) if req.field_mappings else SchemaMapping()
+
+    if req.connector_type.lower() == "sql":
+        if not req.connection_url:
+            raise HTTPException(status_code=400, detail="connection_url required for SQL connector")
+        connector = DirectSQLConnector(
+            tenant_id=req.tenant_id,
+            name=req.name,
+            connection_url=req.connection_url,
+            telemetry_table=req.telemetry_table or "pricing_feed",
+            schema_mapping=mapping,
+            callback_webhook=req.callback_webhook,
+        )
+    elif req.connector_type.lower() == "rest":
+        if not req.connection_url:
+            raise HTTPException(status_code=400, detail="connection_url (feed_url) required for REST connector")
+        connector = DirectRESTConnector(
+            tenant_id=req.tenant_id,
+            name=req.name,
+            feed_url=req.connection_url,
+            auth_header=req.auth_header,
+            callback_webhook=req.callback_webhook,
+            schema_mapping=mapping,
+        )
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported connector type: {req.connector_type}")
+
+    default_registry.register_connector(connector)
+    return {
+        "status": "registered",
+        "tenant_id": req.tenant_id,
+        "name": req.name,
+        "connector_type": req.connector_type,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/api/v1/connectors", tags=["Federated Connectors"])
+def list_external_connectors() -> List[Dict[str, Any]]:
+    """List all registered external company connectors."""
+    return default_registry.list_connectors()
+
+
+@app.post("/api/v1/connectors/test", tags=["Federated Connectors"])
+def test_external_connector(tenant_id: str = Query(..., description="Tenant ID to test")) -> Dict[str, Any]:
+    """Test read access and connectivity to an external company data source."""
+    connector = default_registry.get_connector(tenant_id)
+    if not connector:
+        raise HTTPException(status_code=404, detail=f"No connector found for tenant '{tenant_id}'")
+    success, message = connector.test_connection()
+    return {
+        "tenant_id": tenant_id,
+        "connected": success,
+        "message": message,
+        "tested_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/api/v1/connectors/evaluate-live", tags=["Federated Connectors"])
+def evaluate_live_external_data(req: LiveEvaluationRequest) -> Dict[str, Any]:
+    """
+    Run sub-millisecond pricing guardrail evaluation directly against external client data.
+    
+    Zero-ETL: Reads live pricing events in-memory, enforces floor invariants, and returns
+    or pushes approval/blocking verdicts without saving data to internal tables.
+    """
+    try:
+        return default_registry.evaluate_live_feed(
+            tenant_id=req.tenant_id,
+            limit=req.limit,
+            push_decisions=req.push_decisions,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Tenant '{req.tenant_id}' not found in connector registry")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Live evaluation failed: {str(exc)}")
 
 
 # ============================================================================

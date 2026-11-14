@@ -89,3 +89,4 @@ temp/
 
 # Test fixtures output
 tests/fixtures/output/
+models/test_*.joblib
