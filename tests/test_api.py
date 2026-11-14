@@ -144,6 +144,18 @@ class TestPricingGuardrailAPI(TestCase):
         self.assertIn("checks", data)
         self.assertIn("passed_checks", data)
 
+    def test_model_evaluation_endpoint(self):
+        res = self.client.get("/api/v1/model-evaluation")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data.get("model_type"), "GradientBoostingClassifier")
+        self.assertIn("dataset_split", data)
+        self.assertEqual(data["dataset_split"]["train_ratio"], 0.8)
+        self.assertEqual(data["dataset_split"]["test_ratio"], 0.2)
+        self.assertIn("performance_metrics", data)
+        self.assertGreaterEqual(data["performance_metrics"]["accuracy"], 0.90)
+        self.assertIn("confusion_matrix", data)
+
     def test_root_index_html_rendered(self):
         res = self.client.get("/")
         self.assertEqual(res.status_code, 200)
