@@ -144,7 +144,11 @@ class ConnectorRegistry:
             results.append(decision)
 
         total_time_ms = (time.perf_counter() - t0) * 1000.0
-        avg_item_ms = total_time_ms / len(results) if results else 0.0
+        avg_item_ms = (
+            sum(r["evaluation_latency_ms"] for r in results) / len(results)
+            if results
+            else 0.0
+        )
 
         return {
             "tenant_id": tenant_id,
