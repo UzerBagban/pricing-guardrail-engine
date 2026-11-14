@@ -136,6 +136,12 @@ def dispatch_webhook(payload: Dict[str, Any]) -> bool:
         return True
 
     import urllib.request
+    from urllib.parse import urlparse
+
+    parsed = urlparse(webhook_url)
+    if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+        log.error(f"Prohibited or invalid webhook URL scheme: {parsed.scheme}. Only HTTP/HTTPS allowed.")
+        return False
 
     try:
         data = json.dumps(payload).encode("utf-8")
@@ -145,7 +151,7 @@ def dispatch_webhook(payload: Dict[str, Any]) -> bool:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310
             resp_body = resp.read().decode("utf-8")
             log.info(f"Webhook delivered: {resp_body}")
             return True

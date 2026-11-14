@@ -7,11 +7,16 @@ All SQL uses %s placeholders - zero string formatting.
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Generator, Optional, Any
 
+
+def _utc_now() -> datetime:
+    """Return timezone-aware current UTC datetime."""
+    return datetime.now(timezone.utc)
+
 import psycopg2
-from psycopg2.pool import SimpleConnectionPool
+from psycopg2.pool import ThreadedConnectionPool
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 from pathlib import Path
@@ -44,22 +49,22 @@ def get_database_url() -> str:
 def get_pool_config() -> dict:
     """Get connection pool configuration from environment with sensible defaults."""
     return {
-        "minconn": int(os.getenv("DB_POOL_MIN", "1")),
-        "maxconn": int(os.getenv("DB_POOL_MAX", "10")),
+        "minconn": int(os.getenv("DB_POOL_MIN", "2")),
+        "maxconn": int(os.getenv("DB_POOL_MAX", "20")),
     }
 
 
 # Module-level connection pool (lazy initialization)
-_pool: Optional[SimpleConnectionPool] = None
+_pool: Optional[ThreadedConnectionPool] = None
 
 
-def get_connection_pool() -> SimpleConnectionPool:
+def get_connection_pool() -> ThreadedConnectionPool:
     """Get or create the global connection pool."""
     global _pool
     if _pool is None:
         database_url = get_database_url()
         pool_config = get_pool_config()
-        _pool = SimpleConnectionPool(
+        _pool = ThreadedConnectionPool(
             minconn=pool_config["minconn"],
             maxconn=pool_config["maxconn"],
             dsn=database_url,
@@ -72,18 +77,34 @@ def get_connection_pool() -> SimpleConnectionPool:
 def get_connection() -> Generator[psycopg2.extensions.connection, None, None]:
     """
     Context manager for a database connection from the pool.
-    Automatically returns connection to pool on exit.
+    Automatically returns connection to pool on exit with auto-healing.
     """
     pool = get_connection_pool()
     conn = pool.getconn()
+    if getattr(conn, "closed", 0) != 0:
+        try:
+            pool.putconn(conn, close=True)
+        except Exception:
+            pass
+        conn = pool.getconn()
     try:
         yield conn
         conn.commit()
     except Exception:
-        conn.rollback()
+        if getattr(conn, "closed", 0) == 0:
+            conn.rollback()
         raise
     finally:
-        pool.putconn(conn)
+        if getattr(conn, "closed", 0) != 0:
+            try:
+                pool.putconn(conn, close=True)
+            except Exception:
+                pass
+        else:
+            try:
+                pool.putconn(conn)
+            except Exception:
+                pass
 
 
 @contextmanager
@@ -228,7 +249,7 @@ def persist_event(event: TelemetryEvent) -> bool:
                 event.suppression_triggered,
                 event.suppression_reason,
                 event.metadata,
-                event.created_at or datetime.utcnow()
+                event.created_at or _utc_now()
             ))
         return True
     except Exception as e:
@@ -328,7 +349,7 @@ def persist_event(event: TelemetryEvent) -> bool:
                 event.suppression_triggered,
                 event.suppression_reason,
                 event.metadata,
-                event.created_at or datetime.utcnow()
+                event.created_at or _utc_now()
             ))
         return True
     except Exception as e:
@@ -393,7 +414,7 @@ def persist_batch(events: list) -> int:
                         event.suppression_triggered,
                         event.suppression_reason,
                         event.metadata,
-                        event.created_at or datetime.utcnow()
+                        event.created_at or _utc_now()
                     ))
                     success += 1
                 except Exception as e:
@@ -453,7 +474,7 @@ def add_suppression(
                 product_uuid, asin, channel, reason,
                 target_price, floor_price, vrp_price, margin_pct,
                 elasticity_score, severity, "pending",
-                datetime.utcnow(), None
+                _utc_now(), None
             ))
         log.info(f"Added suppression for SKU {sku}: {reason}")
         return True
@@ -493,7 +514,7 @@ def log_vrp_drift_event(
                 product_uuid, asin, drift_type, severity,
                 previous_vrp, current_vrp, drift_pct, threshold_pct,
                 our_price, floor_price, recommended_action,
-                "new", datetime.utcnow()
+                "new", _utc_now()
             ))
         return True
     except Exception as e:
@@ -531,7 +552,7 @@ def log_price_change(
             cur.execute(query, (
                 product_uuid, change_type, old_price, new_price, floor_price, vrp_price,
                 margin_before, margin_after, elasticity_score, triggered_by,
-                json.dumps(metadata), datetime.utcnow()
+                json.dumps(metadata), _utc_now()
             ))
         return True
     except Exception as e:
@@ -564,7 +585,7 @@ def payload_to_event(payload: Any) -> TelemetryEvent:
     import uuid
     
     # Parse timestamp
-    ts = datetime.utcnow()
+    ts = _utc_now()
     if payload.timestamp:
         try:
             ts = datetime.fromisoformat(payload.timestamp.replace('Z', '+00:00'))
@@ -602,7 +623,7 @@ def payload_to_event(payload: Any) -> TelemetryEvent:
         suppression_triggered=payload.suppression_triggered,
         suppression_reason=payload.suppression_reason,
         metadata=payload.metadata,
-        created_at=datetime.utcnow()
+        created_at=_utc_now()
     )
 
 
@@ -615,16 +636,25 @@ def close_pool() -> None:
 
 
 def test_connection() -> bool:
-    """Test database connectivity. Returns True if successful."""
-    try:
-        with get_cursor(commit=False) as cursor:
-            cursor.execute("SELECT 1 as test, version() as version")
-            result = cursor.fetchone()
-            print(f"Database connection successful: {result['version']}")
-            return True
-    except Exception as e:
-        print(f"Database connection failed: {e}")
-        return False
+    """Test database connectivity with automatic pool reconnection on closed socket."""
+    global _pool
+    for attempt in range(2):
+        try:
+            with get_cursor(commit=False) as cursor:
+                cursor.execute("SELECT 1 as test, version() as version")
+                result = cursor.fetchone()
+                return True
+        except Exception as e:
+            if attempt == 0:
+                try:
+                    if _pool is not None:
+                        _pool.closeall()
+                except Exception:
+                    pass
+                _pool = None
+            else:
+                return False
+    return False
 
 
 if __name__ == "__main__":
